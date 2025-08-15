@@ -10,6 +10,7 @@
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/Xfixes.h>
+#include <X11/Xft/Xft.h> // Include Xft headers
 
 #define ALIGN_CENTER 1
 #define ALIGN_LEFT   2
@@ -21,13 +22,19 @@ Display *g_display;
 int g_screen;
 Window g_win;
 Colormap g_colormap;
+XVisualInfo g_vinfo; // Store visual info globally
 GC gc;
-XFontStruct *font;
-XColor ltblue, blacka, transparent, white, outline;
+XftFont *xft_font = nullptr; // Xft font structure
+XftDraw *xft_draw = nullptr; // Xft drawing context
 
-const char *font_name = "9x15bold";
-const int font_width = 9;
-const int font_height = 15;
+// Xft color variables
+XftColor ltblue_xft;
+XftColor blacka_xft;
+XftColor white_xft;
+XftColor outline_xft;
+
+const char *font_path = "/home/dan/repos/X11-window-overlay/fonts/consolas.ttf"; // Update this path
+const int font_size = 15; // Adjust as needed
 int WIDTH = 640;
 int HEIGHT = 480;
 int POSX = 0;
@@ -48,10 +55,19 @@ XColor createXColorFromRGB(short r, short g, short b)
     return color;
 }
 
-XColor createXColorFromRGBA(short r, short g, short b, short a)
+XftColor createXftColorFromRGBA(short r, short g, short b, short a)
 {
-    XColor color = createXColorFromRGB(r, g, b);
-    *(&color.pixel) = ((*(&color.pixel)) & 0x00ffffff) | (a << 24);
+    XRenderColor xrc = {
+        .red = (r * 0xffff) / 0xff,
+        .green = (g * 0xffff) / 0xff,
+        .blue = (b * 0xffff) / 0xff,
+        .alpha = (a * 0xffff) / 0xff
+    };
+    XftColor color;
+    if (!XftColorAllocValue(g_display, g_vinfo.visual, g_colormap, &xrc, &color)) {
+        std::cerr << "Failed to allocate Xft color" << std::endl;
+        exit(1);
+    }
     return color;
 }
 
@@ -123,17 +139,14 @@ void getWindowGeometry(Window win)
     POSY = y;
     WIDTH = attr.width;
     HEIGHT = attr.height;
-
-    //std::cout << "Found target window at (" << POSX << "," << POSY << "), size " << WIDTH << "x" << HEIGHT << "\n";
 }
 
 void createOverlayWindow()
 {
-    XColor bgcolor = createXColorFromRGBA(0, 0, 0, 0);
-    XVisualInfo vinfo;
-    XMatchVisualInfo(g_display, DefaultScreen(g_display), 32, TrueColor, &vinfo);
+    XColor bgcolor = createXColorFromRGB(0, 0, 0);
+    XMatchVisualInfo(g_display, DefaultScreen(g_display), 32, TrueColor, &g_vinfo);
 
-    g_colormap = XCreateColormap(g_display, DefaultRootWindow(g_display), vinfo.visual, AllocNone);
+    g_colormap = XCreateColormap(g_display, DefaultRootWindow(g_display), g_vinfo.visual, AllocNone);
     XSetWindowAttributes attr{};
     attr.background_pixmap = None;
     attr.background_pixel = bgcolor.pixel;
@@ -150,7 +163,7 @@ void createOverlayWindow()
                          CWWinGravity | CWBitGravity | CWSaveUnder | CWDontPropagate | CWOverrideRedirect;
 
     g_win = XCreateWindow(g_display, DefaultRootWindow(g_display), POSX, POSY, WIDTH, HEIGHT, 0,
-                          vinfo.depth, InputOutput, vinfo.visual, mask, &attr);
+                          g_vinfo.depth, InputOutput, g_vinfo.visual, mask, &attr);
 
     XShapeCombineMask(g_display, g_win, ShapeInput, 0, 0, None, ShapeSet);
     allow_input_passthrough(g_win);
@@ -163,28 +176,46 @@ void initOverlay()
     createOverlayWindow();
 
     gc = XCreateGC(g_display, g_win, 0, 0);
-    font = XLoadQueryFont(g_display, font_name);
-    if (!font)
-    {
-        std::cerr << "Unable to load font " << font_name << std::endl;
-        font = XLoadQueryFont(g_display, "fixed");
+    
+    // Initialize Xft drawing context
+    xft_draw = XftDrawCreate(g_display, g_win, g_vinfo.visual, g_colormap);
+    
+    // Load TTF font using Xft
+    xft_font = XftFontOpen(g_display, g_screen,
+                          XFT_FAMILY, XftTypeString, "monospace",
+                          XFT_SIZE, XftTypeDouble, (double)font_size,
+                          NULL);
+    
+    if (!xft_font) {
+        // Fallback to default font if specified font fails
+        std::cerr << "Failed to load specified font, using fallback" << std::endl;
+        xft_font = XftFontOpen(g_display, g_screen,
+                              XFT_FAMILY, XftTypeString, "sans",
+                              XFT_SIZE, XftTypeDouble, (double)font_size,
+                              NULL);
+    }
+    if (!xft_font) {
+        std::cerr << "Critical error: Could not load any font" << std::endl;
+        exit(1);
     }
 
-    ltblue = createXColorFromRGBA(0, 255, 255, 255);
-    blacka = createXColorFromRGBA(0, 0, 0, 150);
-    white = createXColorFromRGBA(255, 255, 255, 255);
-    transparent = createXColorFromRGBA(255, 255, 255, 0);
-    outline = createXColorFromRGBA(0, 0, 0, 255); // Black outline
+    // Initialize colors with Xft
+    ltblue_xft = createXftColorFromRGBA(0, 255, 255, 255);
+    blacka_xft = createXftColorFromRGBA(0, 0, 0, 150);
+    white_xft = createXftColorFromRGBA(255, 255, 255, 255);
+    outline_xft = createXftColorFromRGBA(0, 0, 0, 255);
 }
 
-// Draw plain text without any background or outline
-void drawString(const char *text, int x, int y, XColor fg, int align)
+// Draw plain text with Xft
+void drawString(const char *text, int x, int y, XftColor &color, int align)
 {
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
+    if (!xft_font || !xft_draw) return;
+
+    XGlyphInfo extents;
+    XftTextExtentsUtf8(g_display, xft_font, (const FcChar8*)text, strlen(text), &extents);
+    int text_width = extents.width;
     int text_x = x;
 
-    // Adjust positions based on alignment
     switch(align) {
         case ALIGN_CENTER:
             text_x = x - text_width / 2;
@@ -197,22 +228,24 @@ void drawString(const char *text, int x, int y, XColor fg, int align)
             break;
     }
 
-    XSetFont(g_display, gc, font->fid);
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
+    int baseline = y + xft_font->ascent;
+    XftDrawStringUtf8(xft_draw, &color, xft_font, text_x, baseline, (const FcChar8*)text, strlen(text));
 }
 
-// Draw text with a background rectangle
-void drawStringBackground(const char *text, int x, int y, XColor fg, XColor bg, int align, int padding = 4)
+// Draw text with background
+void drawStringBackground(const char *text, int x, int y, XftColor &fg, XftColor &bg, int align, int padding = 4)
 {
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
+    if (!xft_font || !xft_draw) return;
+
+    XGlyphInfo extents;
+    XftTextExtentsUtf8(g_display, xft_font, (const FcChar8*)text, strlen(text), &extents);
+    int text_width = extents.width;
+    int text_height = xft_font->ascent + xft_font->descent;
     int rect_width = text_width + 2 * padding;
-    int rect_height = font_height + 2 * padding;
+    int rect_height = text_height + 2 * padding;
     int rect_x = x;
     int text_x = x;
 
-    // Adjust positions based on alignment
     switch(align) {
         case ALIGN_CENTER:
             rect_x = x - rect_width / 2;
@@ -224,28 +257,29 @@ void drawStringBackground(const char *text, int x, int y, XColor fg, XColor bg, 
             break;
         case ALIGN_LEFT:
         default:
+            rect_x = x;
+            text_x = x;
             break;
     }
 
-    XSetFont(g_display, gc, font->fid);
-    
-    // Draw background rectangle
-    XSetForeground(g_display, gc, bg.pixel);
-    XFillRectangle(g_display, g_win, gc, rect_x, y, rect_width, rect_height);
+    // Draw background
+    XftDrawRect(xft_draw, &bg, rect_x, y, rect_width, rect_height);
     
     // Draw text
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height + padding, text, tlen);
+    int baseline = y + padding + xft_font->ascent;
+    XftDrawStringUtf8(xft_draw, &fg, xft_font, text_x, baseline, (const FcChar8*)text, strlen(text));
 }
 
-// Draw text with an outline
-void drawStringOutline(const char *text, int x, int y, XColor fg, XColor outline_color, int align, int outline_thickness = 2)
+// Draw text with outline
+void drawStringOutline(const char *text, int x, int y, XftColor &fg, XftColor &outline_color, int align, int outline_thickness = 2)
 {
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
+    if (!xft_font || !xft_draw) return;
+
+    XGlyphInfo extents;
+    XftTextExtentsUtf8(g_display, xft_font, (const FcChar8*)text, strlen(text), &extents);
+    int text_width = extents.width;
     int text_x = x;
 
-    // Adjust positions based on alignment
     switch(align) {
         case ALIGN_CENTER:
             text_x = x - text_width / 2;
@@ -258,24 +292,21 @@ void drawStringOutline(const char *text, int x, int y, XColor fg, XColor outline
             break;
     }
 
-    XSetFont(g_display, gc, font->fid);
-    
+    int baseline = y + xft_font->ascent;
+
     // Draw outline
-    XSetForeground(g_display, gc, outline_color.pixel);
     for (int ox = -outline_thickness; ox <= outline_thickness; ox++) {
         for (int oy = -outline_thickness; oy <= outline_thickness; oy++) {
             if (ox != 0 || oy != 0) {
-                XDrawString(g_display, g_win, gc, 
-                            text_x + ox, 
-                            y + font_height + oy, 
-                            text, tlen);
+                XftDrawStringUtf8(xft_draw, &outline_color, xft_font, 
+                                  text_x + ox, baseline + oy, 
+                                  (const FcChar8*)text, strlen(text));
             }
         }
     }
     
     // Draw main text
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
+    XftDrawStringUtf8(xft_draw, &fg, xft_font, text_x, baseline, (const FcChar8*)text, strlen(text));
 }
 
 int main()
@@ -321,27 +352,37 @@ int main()
         int horizontal_padding = 10;
         
         // Top-left: Plain text
-        drawString(timer_text, horizontal_padding, vertical_padding, white, ALIGN_LEFT);
+        drawString(timer_text, horizontal_padding, vertical_padding, white_xft, ALIGN_LEFT);
         
         // Top-middle: Text with background
-        drawStringBackground(timer_text, WIDTH / 2, vertical_padding, white, blacka, ALIGN_CENTER);
+        drawStringBackground(timer_text, WIDTH / 2, vertical_padding, white_xft, blacka_xft, ALIGN_CENTER);
         
         // Top-right: Text with outline
-        drawStringOutline(timer_text, WIDTH - horizontal_padding, vertical_padding, ltblue, outline, ALIGN_RIGHT);
+        drawStringOutline(timer_text, WIDTH - horizontal_padding, vertical_padding, ltblue_xft, outline_xft, ALIGN_RIGHT);
         
         // Bottom-left: Text with background
-        drawStringBackground(timer_text, horizontal_padding, HEIGHT - vertical_padding, white, blacka, ALIGN_LEFT);
+        drawStringBackground(timer_text, horizontal_padding, HEIGHT - vertical_padding, white_xft, blacka_xft, ALIGN_LEFT);
         
         // Bottom-middle: Text with outline
-        drawStringOutline(timer_text, WIDTH / 2, HEIGHT - vertical_padding, ltblue, outline, ALIGN_CENTER);
+        drawStringOutline(timer_text, WIDTH / 2, HEIGHT - vertical_padding, ltblue_xft, outline_xft, ALIGN_CENTER);
         
         // Bottom-right: Plain text
-        drawString(timer_text, WIDTH - horizontal_padding, HEIGHT - vertical_padding, white, ALIGN_RIGHT);
+        drawString(timer_text, WIDTH - horizontal_padding, HEIGHT - vertical_padding, white_xft, ALIGN_RIGHT);
         
         // Center: Text with background
-        drawStringBackground(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
+        drawStringBackground(timer_text, WIDTH / 2, HEIGHT / 2, ltblue_xft, blacka_xft, ALIGN_CENTER);
 
         XFlush(g_display);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    // Cleanup (though the program runs indefinitely)
+    XftFontClose(g_display, xft_font);
+    XftDrawDestroy(xft_draw);
+    XftColorFree(g_display, g_vinfo.visual, g_colormap, &ltblue_xft);
+    XftColorFree(g_display, g_vinfo.visual, g_colormap, &blacka_xft);
+    XftColorFree(g_display, g_vinfo.visual, g_colormap, &white_xft);
+    XftColorFree(g_display, g_vinfo.visual, g_colormap, &outline_xft);
+    XCloseDisplay(g_display);
+    return 0;
 }
