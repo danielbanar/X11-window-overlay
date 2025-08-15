@@ -60,8 +60,7 @@ void allow_input_passthrough(Window w)
     XFixesDestroyRegion(g_display, region);
 }
 
-
-bool findWindowByName(Window root, const std::string &name, Window &outWin)
+bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
 {
     Window root_return, parent_return;
     Window *children;
@@ -70,12 +69,23 @@ bool findWindowByName(Window root, const std::string &name, Window &outWin)
     {
         for (unsigned int i = 0; i < nchildren; i++)
         {
-            char *window_name = nullptr;
-            if (XFetchName(g_display, children[i], &window_name) && window_name)
+            XClassHint classHint;
+            if (XGetClassHint(g_display, children[i], &classHint))
             {
-                std::string wname(window_name);
-                XFree(window_name);
-                if (wname.find(name) != std::string::npos)
+                bool match = false;
+                if (classHint.res_class)
+                {
+                    std::string cls(classHint.res_class);
+                    if (cls == target_class)
+                    {
+                        match = true;
+                    }
+                }
+                // Free class hint resources
+                if (classHint.res_name) XFree(classHint.res_name);
+                if (classHint.res_class) XFree(classHint.res_class);
+
+                if (match)
                 {
                     outWin = children[i];
                     if (children)
@@ -83,7 +93,9 @@ bool findWindowByName(Window root, const std::string &name, Window &outWin)
                     return true;
                 }
             }
-            if (findWindowByName(children[i], name, outWin))
+
+            // Recursive search
+            if (findWindowByClass(children[i], target_class, outWin))
             {
                 if (children)
                     XFree(children);
@@ -96,42 +108,6 @@ bool findWindowByName(Window root, const std::string &name, Window &outWin)
     return false;
 }
 
-void getAbsoluteGeometry(Window win)
-{
-    XWindowAttributes attr;
-    XGetWindowAttributes(g_display, win, &attr);
-
-    int x = 0, y = 0;
-    Window child = win;
-    Window root_return, parent_return;
-    Window *children;
-    unsigned int nchildren;
-
-    // Walk up the hierarchy to root
-    Window current = win;
-    while (true)
-    {
-        XTranslateCoordinates(g_display, current, DefaultRootWindow(g_display), 0, 0, &x, &y, &child);
-
-        if (!XQueryTree(g_display, current, &root_return, &parent_return, &children, &nchildren))
-            break;
-
-        if (children)
-            XFree(children);
-
-        if (parent_return == DefaultRootWindow(g_display))
-            break;
-
-        current = parent_return;
-    }
-
-    POSX = x;
-    POSY = y;
-    WIDTH = attr.width;
-    HEIGHT = attr.height;
-
-    std::cout << "Absolute position: " << POSX << "," << POSY << " size " << WIDTH << "x" << HEIGHT << "\n";
-}
 void getWindowGeometry(Window win)
 {
     XWindowAttributes attr;
@@ -146,7 +122,7 @@ void getWindowGeometry(Window win)
     WIDTH = attr.width;
     HEIGHT = attr.height;
 
-    std::cout << "Found target window at (" << POSX << "," << POSY << "), size " << WIDTH << "x" << HEIGHT << "\n";
+    //std::cout << "Found target window at (" << POSX << "," << POSY << "), size " << WIDTH << "x" << HEIGHT << "\n";
 }
 
 void createOverlayWindow()
@@ -225,9 +201,9 @@ int main()
     }
 
     Window target;
-    if (!findWindowByName(DefaultRootWindow(g_display), "gst-launch-1.0", target))
+    if (!findWindowByClass(DefaultRootWindow(g_display), "GStreamer", target))
     {
-        std::cerr << "Could not find window with name containing 'gst-launch-1.0'\n";
+        std::cerr << "Could not find window with class 'GStreamer'\n";
         return 1;
     }
 
