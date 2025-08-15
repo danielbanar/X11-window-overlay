@@ -12,6 +12,8 @@
 #include <X11/extensions/Xfixes.h>
 
 #define ALIGN_CENTER 1
+#define ALIGN_LEFT   2
+#define ALIGN_RIGHT  3
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask | EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask | KeymapStateMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ButtonMotionMask)
 
@@ -177,18 +179,37 @@ void initOverlay()
 void drawString(const char *text, int x, int y, XColor fg, XColor bg, int align)
 {
     int tlen = strlen(text);
+    int text_width = tlen * font_width;
+    int padding = 4;
+    int rect_width = text_width + 2 * padding;
+    int rect_height = font_height + 2 * padding;
+    int rect_x = x;
+    int text_x = x;
+
+    // Adjust positions based on alignment
+    switch(align) {
+        case ALIGN_CENTER:
+            rect_x = x - rect_width / 2;
+            text_x = x - text_width / 2;
+            break;
+        case ALIGN_RIGHT:
+            rect_x = x - rect_width;
+            text_x = x - text_width;
+            break;
+        case ALIGN_LEFT:
+        default:
+            // Already set to left alignment by default
+            break;
+    }
+
     XSetFont(g_display, gc, font->fid);
     if (bg.pixel != transparent.pixel)
     {
         XSetForeground(g_display, gc, bg.pixel);
-        XFillRectangle(g_display, g_win, gc,
-                       x - (align == ALIGN_CENTER ? tlen * font_width / 2 : 0) - 4,
-                       y, tlen * font_width + 8, font_height + 4);
+        XFillRectangle(g_display, g_win, gc, rect_x, y, rect_width, rect_height);
     }
     XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc,
-                x - (align == ALIGN_CENTER ? tlen * font_width / 2 : 0),
-                y + font_height, text, tlen);
+    XDrawString(g_display, g_win, gc, text_x, y + font_height + padding, text, tlen);
 }
 
 int main()
@@ -220,12 +241,32 @@ int main()
         // Move & resize overlay if needed
         XMoveResizeWindow(g_display, g_win, POSX, POSY, WIDTH, HEIGHT);
 
-        // Draw time since start
+        // Clear the window before redrawing
+        //XClearWindow(g_display, g_win);
+
+        // Get elapsed time
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-
         std::string text = std::to_string(elapsed) + " ms";
-        drawString(text.c_str(), WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
+        const char* timer_text = text.c_str();
+
+        // Draw timer in multiple positions
+        int padding = 10;
+        
+        // Top-left
+        drawString(timer_text, padding, padding, ltblue, blacka, ALIGN_LEFT);
+        
+        // Top-middle
+        drawString(timer_text, WIDTH / 2, padding, white, blacka, ALIGN_CENTER);
+        
+        // Top-right
+        drawString(timer_text, WIDTH - padding, padding, ltblue, blacka, ALIGN_RIGHT);
+        
+        // Bottom-middle
+        drawString(timer_text, WIDTH / 2, HEIGHT - padding - font_height, white, blacka, ALIGN_CENTER);
+        
+        // Center
+        drawString(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
 
         XFlush(g_display);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
