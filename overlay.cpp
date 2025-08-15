@@ -59,42 +59,7 @@ void allow_input_passthrough(Window w)
     XFixesSetWindowShapeRegion(g_display, w, ShapeInput, 0, 0, region);
     XFixesDestroyRegion(g_display, region);
 }
-void getAbsoluteGeometry(Window win)
-{
-    XWindowAttributes attr;
-    XGetWindowAttributes(g_display, win, &attr);
 
-    int x = 0, y = 0;
-    Window child = win;
-    Window root_return, parent_return;
-    Window *children;
-    unsigned int nchildren;
-
-    // Walk up the hierarchy to root
-    Window current = win;
-    while (true)
-    {
-        XTranslateCoordinates(g_display, current, DefaultRootWindow(g_display), 0, 0, &x, &y, &child);
-
-        if (!XQueryTree(g_display, current, &root_return, &parent_return, &children, &nchildren))
-            break;
-
-        if (children)
-            XFree(children);
-
-        if (parent_return == DefaultRootWindow(g_display))
-            break;
-
-        current = parent_return;
-    }
-
-    POSX = x;
-    POSY = y;
-    WIDTH = attr.width;
-    HEIGHT = attr.height;
-
-    std::cout << "Absolute position: " << POSX << "," << POSY << " size " << WIDTH << "x" << HEIGHT << "\n";
-}
 
 bool findWindowByName(Window root, const std::string &name, Window &outWin)
 {
@@ -131,6 +96,42 @@ bool findWindowByName(Window root, const std::string &name, Window &outWin)
     return false;
 }
 
+void getAbsoluteGeometry(Window win)
+{
+    XWindowAttributes attr;
+    XGetWindowAttributes(g_display, win, &attr);
+
+    int x = 0, y = 0;
+    Window child = win;
+    Window root_return, parent_return;
+    Window *children;
+    unsigned int nchildren;
+
+    // Walk up the hierarchy to root
+    Window current = win;
+    while (true)
+    {
+        XTranslateCoordinates(g_display, current, DefaultRootWindow(g_display), 0, 0, &x, &y, &child);
+
+        if (!XQueryTree(g_display, current, &root_return, &parent_return, &children, &nchildren))
+            break;
+
+        if (children)
+            XFree(children);
+
+        if (parent_return == DefaultRootWindow(g_display))
+            break;
+
+        current = parent_return;
+    }
+
+    POSX = x;
+    POSY = y;
+    WIDTH = attr.width;
+    HEIGHT = attr.height;
+
+    std::cout << "Absolute position: " << POSX << "," << POSY << " size " << WIDTH << "x" << HEIGHT << "\n";
+}
 void getWindowGeometry(Window win)
 {
     XWindowAttributes attr;
@@ -230,7 +231,7 @@ int main()
         return 1;
     }
 
-    getAbsoluteGeometry(target);
+    getWindowGeometry(target);
     initOverlay();
 
     auto start_time = std::chrono::steady_clock::now();
@@ -238,7 +239,7 @@ int main()
     while (true)
     {
         // Recalculate GStreamer window position & size
-        getAbsoluteGeometry(target);
+        getWindowGeometry(target);
 
         // Move & resize overlay if needed
         XMoveResizeWindow(g_display, g_win, POSX, POSY, WIDTH, HEIGHT);
