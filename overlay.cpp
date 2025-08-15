@@ -176,24 +176,18 @@ void initOverlay()
     transparent = createXColorFromRGBA(255, 255, 255, 0);
 }
 
-void drawString(const char *text, int x, int y, XColor fg, XColor bg, int align)
+void drawString(const char *text, int x, int y, XColor fg, int align)
 {
     int tlen = strlen(text);
     int text_width = tlen * font_width;
-    int padding = 4;
-    int rect_width = text_width + 2 * padding;
-    int rect_height = font_height + 2 * padding;
-    int rect_x = x;
     int text_x = x;
 
     // Adjust positions based on alignment
     switch(align) {
         case ALIGN_CENTER:
-            rect_x = x - rect_width / 2;
             text_x = x - text_width / 2;
             break;
         case ALIGN_RIGHT:
-            rect_x = x - rect_width;
             text_x = x - text_width;
             break;
         case ALIGN_LEFT:
@@ -203,13 +197,8 @@ void drawString(const char *text, int x, int y, XColor fg, XColor bg, int align)
     }
 
     XSetFont(g_display, gc, font->fid);
-    if (bg.pixel != transparent.pixel)
-    {
-        XSetForeground(g_display, gc, bg.pixel);
-        XFillRectangle(g_display, g_win, gc, rect_x, y, rect_width, rect_height);
-    }
     XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height + padding, text, tlen);
+    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
 }
 
 int main()
@@ -242,7 +231,7 @@ int main()
         XMoveResizeWindow(g_display, g_win, POSX, POSY, WIDTH, HEIGHT);
 
         // Clear the window before redrawing
-        //XClearWindow(g_display, g_win);
+        XClearWindow(g_display, g_win);
 
         // Get elapsed time
         auto now = std::chrono::steady_clock::now();
@@ -250,23 +239,24 @@ int main()
         std::string text = std::to_string(elapsed) + " ms";
         const char* timer_text = text.c_str();
 
-        // Draw timer in multiple positions
+        // Draw timer in multiple positions without backgrounds
         int padding = 10;
+        int vertical_padding = 20;
         
         // Top-left
-        drawString(timer_text, padding, padding, ltblue, blacka, ALIGN_LEFT);
+        drawString(timer_text, padding, vertical_padding, ltblue, ALIGN_LEFT);
         
         // Top-middle
-        drawString(timer_text, WIDTH / 2, padding, white, blacka, ALIGN_CENTER);
+        drawString(timer_text, WIDTH / 2, vertical_padding, white, ALIGN_CENTER);
         
         // Top-right
-        drawString(timer_text, WIDTH - padding, padding, ltblue, blacka, ALIGN_RIGHT);
+        drawString(timer_text, WIDTH - padding, vertical_padding, ltblue, ALIGN_RIGHT);
         
         // Bottom-middle
-        drawString(timer_text, WIDTH / 2, HEIGHT - padding - font_height, white, blacka, ALIGN_CENTER);
+        drawString(timer_text, WIDTH / 2, HEIGHT - vertical_padding, white, ALIGN_CENTER);
         
         // Center
-        drawString(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
+        drawString(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, ALIGN_CENTER);
 
         XFlush(g_display);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
