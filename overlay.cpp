@@ -23,7 +23,7 @@ Window g_win;
 Colormap g_colormap;
 GC gc;
 XFontStruct *font;
-XColor ltblue, blacka, transparent, white;
+XColor ltblue, blacka, transparent, white, outline;
 
 const char *font_name = "9x15bold";
 const int font_width = 9;
@@ -174,8 +174,10 @@ void initOverlay()
     blacka = createXColorFromRGBA(0, 0, 0, 150);
     white = createXColorFromRGBA(255, 255, 255, 255);
     transparent = createXColorFromRGBA(255, 255, 255, 0);
+    outline = createXColorFromRGBA(0, 0, 0, 255); // Black outline
 }
 
+// Draw plain text without any background or outline
 void drawString(const char *text, int x, int y, XColor fg, int align)
 {
     int tlen = strlen(text);
@@ -192,11 +194,86 @@ void drawString(const char *text, int x, int y, XColor fg, int align)
             break;
         case ALIGN_LEFT:
         default:
-            // Already set to left alignment by default
             break;
     }
 
     XSetFont(g_display, gc, font->fid);
+    XSetForeground(g_display, gc, fg.pixel);
+    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
+}
+
+// Draw text with a background rectangle
+void drawStringBackground(const char *text, int x, int y, XColor fg, XColor bg, int align, int padding = 4)
+{
+    int tlen = strlen(text);
+    int text_width = tlen * font_width;
+    int rect_width = text_width + 2 * padding;
+    int rect_height = font_height + 2 * padding;
+    int rect_x = x;
+    int text_x = x;
+
+    // Adjust positions based on alignment
+    switch(align) {
+        case ALIGN_CENTER:
+            rect_x = x - rect_width / 2;
+            text_x = x - text_width / 2;
+            break;
+        case ALIGN_RIGHT:
+            rect_x = x - rect_width;
+            text_x = x - text_width;
+            break;
+        case ALIGN_LEFT:
+        default:
+            break;
+    }
+
+    XSetFont(g_display, gc, font->fid);
+    
+    // Draw background rectangle
+    XSetForeground(g_display, gc, bg.pixel);
+    XFillRectangle(g_display, g_win, gc, rect_x, y, rect_width, rect_height);
+    
+    // Draw text
+    XSetForeground(g_display, gc, fg.pixel);
+    XDrawString(g_display, g_win, gc, text_x, y + font_height + padding, text, tlen);
+}
+
+// Draw text with an outline
+void drawStringOutline(const char *text, int x, int y, XColor fg, XColor outline_color, int align, int outline_thickness = 2)
+{
+    int tlen = strlen(text);
+    int text_width = tlen * font_width;
+    int text_x = x;
+
+    // Adjust positions based on alignment
+    switch(align) {
+        case ALIGN_CENTER:
+            text_x = x - text_width / 2;
+            break;
+        case ALIGN_RIGHT:
+            text_x = x - text_width;
+            break;
+        case ALIGN_LEFT:
+        default:
+            break;
+    }
+
+    XSetFont(g_display, gc, font->fid);
+    
+    // Draw outline
+    XSetForeground(g_display, gc, outline_color.pixel);
+    for (int ox = -outline_thickness; ox <= outline_thickness; ox++) {
+        for (int oy = -outline_thickness; oy <= outline_thickness; oy++) {
+            if (ox != 0 || oy != 0) {
+                XDrawString(g_display, g_win, gc, 
+                            text_x + ox, 
+                            y + font_height + oy, 
+                            text, tlen);
+            }
+        }
+    }
+    
+    // Draw main text
     XSetForeground(g_display, gc, fg.pixel);
     XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
 }
@@ -239,24 +316,30 @@ int main()
         std::string text = std::to_string(elapsed) + " ms";
         const char* timer_text = text.c_str();
 
-        // Draw timer in multiple positions without backgrounds
-        int padding = 10;
+        // Draw timer in multiple positions with different styles
         int vertical_padding = 20;
+        int horizontal_padding = 10;
         
-        // Top-left
-        drawString(timer_text, padding, vertical_padding, ltblue, ALIGN_LEFT);
+        // Top-left: Plain text
+        drawString(timer_text, horizontal_padding, vertical_padding, white, ALIGN_LEFT);
         
-        // Top-middle
-        drawString(timer_text, WIDTH / 2, vertical_padding, white, ALIGN_CENTER);
+        // Top-middle: Text with background
+        drawStringBackground(timer_text, WIDTH / 2, vertical_padding, white, blacka, ALIGN_CENTER);
         
-        // Top-right
-        drawString(timer_text, WIDTH - padding, vertical_padding, ltblue, ALIGN_RIGHT);
+        // Top-right: Text with outline
+        drawStringOutline(timer_text, WIDTH - horizontal_padding, vertical_padding, ltblue, outline, ALIGN_RIGHT);
         
-        // Bottom-middle
-        drawString(timer_text, WIDTH / 2, HEIGHT - vertical_padding, white, ALIGN_CENTER);
+        // Bottom-left: Text with background
+        drawStringBackground(timer_text, horizontal_padding, HEIGHT - vertical_padding, white, blacka, ALIGN_LEFT);
         
-        // Center
-        drawString(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, ALIGN_CENTER);
+        // Bottom-middle: Text with outline
+        drawStringOutline(timer_text, WIDTH / 2, HEIGHT - vertical_padding, ltblue, outline, ALIGN_CENTER);
+        
+        // Bottom-right: Plain text
+        drawString(timer_text, WIDTH - horizontal_padding, HEIGHT - vertical_padding, white, ALIGN_RIGHT);
+        
+        // Center: Text with background
+        drawStringBackground(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
 
         XFlush(g_display);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
