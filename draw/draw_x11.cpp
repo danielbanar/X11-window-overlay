@@ -440,7 +440,13 @@ namespace Draw
     {
         TextMetrics tm = computeTextMetrics(text);
         XftColor fg_color = createXftColor(r, g, b);
-        XftColor bg_color = createXftColor(bg_r, bg_g, bg_b, bg_a);
+
+        XColor bg_color;
+        bg_color.red = static_cast<unsigned short>(bg_r * 65535);
+        bg_color.green = static_cast<unsigned short>(bg_g * 65535);
+        bg_color.blue = static_cast<unsigned short>(bg_b * 65535);
+        bg_color.flags = DoRed | DoGreen | DoBlue;
+        XAllocColor(display, colormap, &bg_color);
 
         int rect_width = tm.width + 2 * padding;
         int rect_height = font_height + 2 * padding;
@@ -470,7 +476,6 @@ namespace Draw
         drawTextRuns(tm, text_x, baseline, &fg_color);
 
         XftColorFree(display, visual, colormap, &fg_color);
-        XftColorFree(display, visual, colormap, &bg_color);
     }
 
 }
