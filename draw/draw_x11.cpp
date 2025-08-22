@@ -268,9 +268,11 @@ namespace
             FcChar32 cp;
             int before = i;
             utf8_next(text, len, i, cp);
-            
-            if (cp == '\n') {
-                if (!buf.empty() && current) {
+
+            if (cp == '\n')
+            {
+                if (!buf.empty() && current)
+                {
                     runs.push_back({current, buf});
                     buf.clear();
                 }
@@ -278,7 +280,7 @@ namespace
                 current = nullptr;
                 continue;
             }
-            
+
             XftFont *f = pickFontForChar(cp);
 
             if (current == nullptr)
@@ -308,27 +310,28 @@ namespace
         tm.width = 0;
         int max_line_width = 0;
         int line_count = 1;
-        
+
         for (auto &r : tm.runs)
         {
-            if (r.first == nullptr && r.second == "\n") {
+            if (r.first == nullptr && r.second == "\n")
+            {
                 line_count++;
                 max_line_width = std::max(max_line_width, tm.width);
                 tm.width = 0;
                 continue;
             }
-            
+
             XGlyphInfo gi;
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8 *)r.second.c_str(),
                                (int)r.second.size(), &gi);
             tm.width += gi.xOff;
         }
-        
+
         max_line_width = std::max(max_line_width, tm.width);
         tm.width = max_line_width;
         tm.height = line_count * font_height;
-        
+
         textMetricsCache.emplace(text, tm);
         return tm;
     }
@@ -337,15 +340,16 @@ namespace
     {
         int penX = x;
         int penY = baselineY;
-        
+
         for (auto &r : tm.runs)
         {
-            if (r.first == nullptr && r.second == "\n") {
+            if (r.first == nullptr && r.second == "\n")
+            {
                 penX = x;
                 penY += font_height;
                 continue;
             }
-            
+
             XGlyphInfo gi;
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8 *)r.second.c_str(),
@@ -360,23 +364,24 @@ namespace
                              const XftColor *fg, const XftColor *outline_color, int outline_thickness = 2)
     {
         const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
-        
+
         int penX = x;
         int penY = baselineY;
-        
+
         for (auto &r : tm.runs)
         {
-            if (r.first == nullptr && r.second == "\n") {
+            if (r.first == nullptr && r.second == "\n")
+            {
                 penX = x;
                 penY += font_height;
                 continue;
             }
-            
+
             for (int i = 0; i < 8; ++i)
             {
                 int outlineX = penX + offsets[i][0] * outline_thickness;
                 int outlineY = penY + offsets[i][1] * outline_thickness;
-                
+
                 XGlyphInfo gi;
                 XftTextExtentsUtf8(display, r.first,
                                    (const FcChar8 *)r.second.c_str(),
@@ -384,7 +389,7 @@ namespace
                 XftDrawStringUtf8(back_draw, outline_color, r.first, outlineX, outlineY,
                                   (const FcChar8 *)r.second.c_str(), (int)r.second.size());
             }
-            
+
             XGlyphInfo gi;
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8 *)r.second.c_str(),
@@ -538,7 +543,14 @@ namespace Draw
 
         XftColorFree(display, visual, colormap, &fg);
     }
-
+    void getTextSize(const std::string &text, int *width, int *height)
+    {
+        TextMetrics tm = computeTextMetrics(text);
+        if (width)
+            *width = tm.width;
+        if (height)
+            *height = tm.height;
+    }
 }
 
 namespace Overlay

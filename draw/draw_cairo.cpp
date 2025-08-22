@@ -250,7 +250,25 @@ namespace Draw
 
         g_object_unref(layout);
     }
+    void getTextSize(const std::string &text, int *width, int *height)
+    {
+        if (!current_cr)
+            return;
 
+        PangoLayout *layout = pango_cairo_create_layout(current_cr);
+        setLayoutFont(layout);
+        pango_layout_set_text(layout, text.c_str(), -1);
+
+        int w, h;
+        pango_layout_get_size(layout, &w, &h);
+
+        if (width)
+            *width = w / PANGO_SCALE;
+        if (height)
+            *height = h / PANGO_SCALE;
+
+        g_object_unref(layout);
+    }
 }
 
 namespace Overlay
