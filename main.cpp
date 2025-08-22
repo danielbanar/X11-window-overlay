@@ -21,7 +21,7 @@ int main() {
         
         auto now = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-        std::string text = std::to_string(ms) + " ms 🔋↕️🧭🛰️⏱🏠\n HALO";
+        std::string text = std::to_string(ms) + " ms 🔋↕️🧭🛰️⏱🏠\nHALO";
         
         int padV = 20;
         int padH = 10;
