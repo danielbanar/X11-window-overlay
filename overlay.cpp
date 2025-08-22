@@ -11,7 +11,6 @@
 #include <cairo/cairo.h>
 #include <cairo/cairo-xlib.h>
 #include <pango/pangocairo.h>
-#include <fontconfig/fontconfig.h>
 
 #define ALIGN_CENTER 1
 #define ALIGN_LEFT 2
@@ -19,11 +18,14 @@
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask | EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask | KeymapStateMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ButtonMotionMask)
 
-// Profiling
+// Enable or disable profiling
+//#define ENABLE_PROFILING
+
+#ifdef ENABLE_PROFILING
 struct ScopeTimer {
     const char* name;
     std::chrono::steady_clock::time_point start;
-    inline static long long threshold_ms = 5; // only print if >5 ms
+    inline static long long threshold_ms = 5;
     ScopeTimer(const char* n) : name(n), start(std::chrono::steady_clock::now()) {}
     ~ScopeTimer() {
         auto end = std::chrono::steady_clock::now();
@@ -33,6 +35,11 @@ struct ScopeTimer {
         }
     }
 };
+#else
+struct ScopeTimer {
+    ScopeTimer(const char*) {}
+};
+#endif
 
 // Globals
 Display *g_display;
@@ -49,8 +56,7 @@ int HEIGHT = 480;
 int POSX = 0;
 int POSY = 0;
 
-const char *LOCAL_FONT_FILE = "UbuntuMono-Regular.ttf";
-const char *FONT_FAMILY = "Consolas";
+const char *FONT_FAMILY = "Consolas"; // must be installed on system
 const int FONT_SIZE_PT = 20;
 
 void allow_input_passthrough(Window w)
@@ -159,17 +165,6 @@ void ensureOffscreenBuffer()
     }
 }
 
-void registerLocalFontIfPresent()
-{
-    ScopeTimer timer("registerLocalFontIfPresent");
-    FcConfig *config = FcInitLoadConfigAndFonts();
-    if (config)
-    {
-        FcConfigAppFontAddFile(config, (const FcChar8 *)LOCAL_FONT_FILE);
-        FcConfigSetCurrent(config);
-    }
-}
-
 static inline void setLayoutFont(PangoLayout *layout)
 {
     ScopeTimer timer("setLayoutFont");
@@ -202,6 +197,7 @@ void drawStringPlain(cairo_t *ctx, const std::string &text, int x, int y, double
     g_object_unref(layout);
 }
 
+// drawStringOutline and drawStringBackground same as before (with ScopeTimer)
 void drawStringOutline(cairo_t *ctx, const std::string &text, int x, int y,
                        double r, double g, double b, double or_, double og, double ob, double oa,
                        double outline_width, int align)
@@ -310,7 +306,6 @@ int main()
         return 1;
     }
 
-    registerLocalFontIfPresent();
     getWindowGeometry(target);
     createOverlayWindow();
 
@@ -331,7 +326,7 @@ int main()
         cairo_surface_flush(cairo_surface);
         XFlush(g_display);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     if (cr) cairo_destroy(cr);
