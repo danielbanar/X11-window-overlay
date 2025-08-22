@@ -1,10 +1,10 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I$(X11_DIR) `pkg-config --cflags xft fontconfig`
+CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I$(DRAW_DIR) `pkg-config --cflags xft fontconfig`
 LDFLAGS = `pkg-config --libs xft fontconfig` -lX11 -lXext -lXcomposite -lXfixes
 
 TARGET = overlay_xft
-X11_DIR = x11
-SRCS = main.cpp $(X11_DIR)/draw_x11.cpp
+DRAW_DIR = draw
+SRCS = main.cpp $(DRAW_DIR)/x11/draw_x11.cpp
 
 all: $(TARGET)
 

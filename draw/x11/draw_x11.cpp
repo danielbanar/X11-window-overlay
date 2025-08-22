@@ -1,9 +1,10 @@
 // draw_cairo.cpp
-#include "draw_x11.h"
+#include "draw.h"
 #include <X11/Xutil.h>
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/Xft/Xft.h>
+#include <X11/Xlib.h>
 #include <fontconfig/fontconfig.h>
 #include <iostream>
 #include <vector>
@@ -318,7 +319,7 @@ void createOverlayWindow() {
 
 } // anonymous namespace
 
-namespace DrawingFunctions {
+namespace Draw {
 
 void setFont(const char* family, int size) {
     font_family = family;
@@ -406,9 +407,9 @@ void drawStringBackground(const std::string &text, int x, int y,
     XftColorFree(display, visual, colormap, &bg_color);
 }
 
-} // namespace DrawingFunctions
+} // namespace Draw
 
-namespace OverlayWindow {
+namespace Overlay {
 
 bool initialize(const char* window_class) {
     display = XOpenDisplay(0);
@@ -517,4 +518,4 @@ int getHeight() {
     return height;
 }
 
-} // namespace OverlayWindow
+}
