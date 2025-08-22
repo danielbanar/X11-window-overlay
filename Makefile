@@ -1,7 +1,7 @@
-# Compiler and flags
-CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -O2 `pkg-config --cflags cairo`
-LDFLAGS = `pkg-config --libs cairo` -lX11 -lXext -lXcomposite -lXfixes
+CXX := g++
+CXXFLAGS := -std=c++11 -Wall -O2
+LDFLAGS := -lX11 -lXext -lXcomposite -lXfixes -lXft -lfontconfig
+INCLUDES := -I/usr/include/freetype2/
 
 # Target executable name
 TARGET = overlay
@@ -14,7 +14,7 @@ all: $(TARGET)
 
 # Build the executable
 $(TARGET): $(SRCS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS) $(INCLUDES)
 
 # Clean up build artifacts
 clean:
