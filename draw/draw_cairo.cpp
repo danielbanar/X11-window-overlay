@@ -173,7 +173,7 @@ namespace Draw
             tx = x - w;
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y - h / 2.0);
+        cairo_move_to(current_cr, tx, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -205,13 +205,13 @@ namespace Draw
         cairo_save(current_cr);
         cairo_set_source_rgba(current_cr, outline_r, outline_g, outline_b, outline_a);
         cairo_set_line_width(current_cr, outline_width * 2);
-        cairo_move_to(current_cr, tx, y - h / 2.0);
+        cairo_move_to(current_cr, tx, y);
         pango_cairo_layout_path(current_cr, layout);
         cairo_stroke(current_cr);
         cairo_restore(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y - h / 2.0);
+        cairo_move_to(current_cr, tx, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -241,11 +241,11 @@ namespace Draw
             tx = x - w;
 
         cairo_set_source_rgba(current_cr, bg_r, bg_g, bg_b, bg_a);
-        cairo_rectangle(current_cr, tx - padding, y - h / 2.0 - padding, w + 2 * padding, h + 2 * padding);
+        cairo_rectangle(current_cr, tx - padding, y - padding, w + 2 * padding, h + 2 * padding);
         cairo_fill(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y - h / 2.0);
+        cairo_move_to(current_cr, tx, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);

@@ -23,16 +23,18 @@ int main() {
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
         std::string text = std::to_string(ms) + " ms 🔋↕️🧭🛰️⏱🏠\nHALO";
         
-        int padV = 20;
-        int padH = 10;
+        // Top-left corner
+        //Draw::drawStringPlain(text, 0, 0, 1.0, 1.0, 1.0, ALIGN_LEFT);
+        Draw::drawStringBackground(text, 0, 0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
         
-        Draw::drawStringPlain(text, padH, padV, 1.0, 1.0, 1.0, ALIGN_LEFT);
-        Draw::drawStringBackground(text, width / 2, padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_CENTER);
-        Draw::drawStringOutline(text, width - padH, padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_RIGHT);
-        Draw::drawStringBackground(text, padH, height - padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
-        Draw::drawStringOutline(text, width / 2, height - padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_CENTER);
-        Draw::drawStringPlain(text, width - padH, height - padV, 1.0, 1.0, 1.0, ALIGN_RIGHT);
-        Draw::drawStringBackground(text, width / 2, height / 2, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 8, ALIGN_CENTER);
+        // Top-right corner
+        Draw::drawStringOutline(text, width, 0, 0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_RIGHT);
+        
+        // Bottom-left corner
+        Draw::drawStringBackground(text, 0, height, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
+        
+        // Bottom-right corner
+        Draw::drawStringPlain(text, width, height, 1.0, 1.0, 1.0, ALIGN_RIGHT);
         
         Overlay::endFrame();
         
