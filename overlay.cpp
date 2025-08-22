@@ -10,6 +10,7 @@
 #include <X11/extensions/Xfixes.h>
 #include <cairo/cairo.h>
 #include <cairo/cairo-xlib.h>
+#include <pango/pangocairo.h>
 
 #define ALIGN_CENTER 1
 #define ALIGN_LEFT 2
@@ -23,6 +24,7 @@ Window g_win;
 Colormap g_colormap;
 
 cairo_surface_t *cairo_surface = nullptr;
+cairo_surface_t *offscreen_surface = nullptr;
 cairo_t *cr = nullptr;
 
 int WIDTH = 640;
@@ -121,28 +123,75 @@ void createOverlayWindow()
     allow_input_passthrough(g_win);
     XMapWindow(g_display, g_win);
 
-    // Create Cairo surface for the window
     cairo_surface = cairo_xlib_surface_create(g_display, g_win, vinfo.visual, WIDTH, HEIGHT);
     cr = cairo_create(cairo_surface);
+
+    // Create offscreen buffer for double buffering
+    offscreen_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, WIDTH, HEIGHT);
 }
 
-void drawText(const char *text, int x, int y, double r, double g, double b, int align)
+void drawText(cairo_t *ctx, const std::string &text, int x, int y, double r, double g, double b, int align)
 {
-    cairo_select_font_face(cr, "Emoji", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, 24);
+    PangoLayout *layout = pango_cairo_create_layout(ctx);
 
-    cairo_text_extents_t extents;
-    cairo_text_extents(cr, text, &extents);
+    // You can change to "Ubuntu Mono 24" or load your custom TTF using fontconfig if installed
+    PangoFontDescription *desc = pango_font_description_from_string("Consolas 24");
+    pango_layout_set_font_description(layout, desc);
+    pango_font_description_free(desc);
+
+    pango_layout_set_text(layout, text.c_str(), -1);
+
+    int width, height;
+    pango_layout_get_size(layout, &width, &height);
+    double w = width / PANGO_SCALE;
+    double h = height / PANGO_SCALE;
 
     double tx = x;
     if (align == ALIGN_CENTER)
-        tx = x - extents.width / 2.0;
+        tx = x - w / 2.0;
     else if (align == ALIGN_RIGHT)
-        tx = x - extents.width;
+        tx = x - w;
 
-    cairo_set_source_rgba(cr, r, g, b, 1.0);
-    cairo_move_to(cr, tx, y + extents.height);
-    cairo_show_text(cr, text);
+    cairo_set_source_rgba(ctx, r, g, b, 1.0);
+    cairo_move_to(ctx, tx, y - h / 2.0);
+    pango_cairo_show_layout(ctx, layout);
+
+    g_object_unref(layout);
+}
+
+void ensureOffscreenBuffer()
+{
+    static int lastW = 0, lastH = 0;
+    if (lastW != WIDTH || lastH != HEIGHT || !offscreen_surface)
+    {
+        if (offscreen_surface)
+            cairo_surface_destroy(offscreen_surface);
+
+        offscreen_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, WIDTH, HEIGHT);
+        lastW = WIDTH;
+        lastH = HEIGHT;
+    }
+}
+
+void renderFrame(const std::string &text)
+{
+    ensureOffscreenBuffer();
+
+    cairo_t *off = cairo_create(offscreen_surface);
+
+    // Clear completely with transparency
+    cairo_set_operator(off, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(off, 0, 0, 0, 0);
+    cairo_paint(off);
+
+    drawText(off, text, WIDTH / 2, HEIGHT / 2, 1.0, 1.0, 1.0, ALIGN_CENTER);
+
+    cairo_destroy(off);
+
+    // Blit offscreen to X11 surface (replace, not blend)
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(cr, offscreen_surface, 0, 0);
+    cairo_paint(cr);
 }
 
 int main()
@@ -170,26 +219,25 @@ int main()
     {
         getWindowGeometry(target);
         XMoveResizeWindow(g_display, g_win, POSX, POSY, WIDTH, HEIGHT);
+        cairo_xlib_surface_set_size(cairo_surface, WIDTH, HEIGHT);
 
         cairo_xlib_surface_set_size(cairo_surface, WIDTH, HEIGHT);
-        cairo_save(cr);
-        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-        cairo_paint(cr);
-        cairo_restore(cr);
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-        std::string text = std::to_string(elapsed) + " ms 🔋↕️↕↕️🧭🛰️⏱⏱⏱🏠";
 
-        drawText(text.c_str(), WIDTH / 2, HEIGHT / 2, 0.0, 1.0, 1.0, ALIGN_CENTER);
+        std::string text = std::to_string(elapsed) + " ms 🔋🧭🛰️⏱🏠";
+
+        renderFrame(text);
 
         cairo_surface_flush(cairo_surface);
         XFlush(g_display);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50)); // 20 FPS to prevent flicker
     }
 
     cairo_destroy(cr);
     cairo_surface_destroy(cairo_surface);
+    cairo_surface_destroy(offscreen_surface);
     XCloseDisplay(g_display);
     return 0;
 }
