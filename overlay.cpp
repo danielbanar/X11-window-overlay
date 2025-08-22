@@ -3,13 +3,13 @@
 #include <thread>
 #include <cstring>
 #include <unistd.h>
-#include <X11/Xos.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include <X11/Xatom.h>
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/Xfixes.h>
+#include <cairo/cairo.h>
+#include <cairo/cairo-xlib.h>
 
 #define ALIGN_CENTER 1
 #define ALIGN_LEFT   2
@@ -21,39 +21,14 @@ Display *g_display;
 int g_screen;
 Window g_win;
 Colormap g_colormap;
-GC gc;
-XFontStruct *font;
-XColor ltblue, blacka, transparent, white, outline;
 
-const char *font_name = "9x15bold";
-const int font_width = 9;
-const int font_height = 15;
+cairo_surface_t *cairo_surface = nullptr;
+cairo_t *cr = nullptr;
+
 int WIDTH = 640;
 int HEIGHT = 480;
 int POSX = 0;
 int POSY = 0;
-
-XColor createXColorFromRGB(short r, short g, short b)
-{
-    XColor color;
-    color.red = (r * 0xFFFF) / 0xFF;
-    color.green = (g * 0xFFFF) / 0xFF;
-    color.blue = (b * 0xFFFF) / 0xFF;
-    color.flags = DoRed | DoGreen | DoBlue;
-    if (!XAllocColor(g_display, DefaultColormap(g_display, g_screen), &color))
-    {
-        std::cerr << "Cannot create color" << std::endl;
-        exit(1);
-    }
-    return color;
-}
-
-XColor createXColorFromRGBA(short r, short g, short b, short a)
-{
-    XColor color = createXColorFromRGB(r, g, b);
-    *(&color.pixel) = ((*(&color.pixel)) & 0x00ffffff) | (a << 24);
-    return color;
-}
 
 void allow_input_passthrough(Window w)
 {
@@ -79,11 +54,8 @@ bool findWindowByClass(Window root, const std::string &target_class, Window &out
                 {
                     std::string cls(classHint.res_class);
                     if (cls == target_class)
-                    {
                         match = true;
-                    }
                 }
-                // Free class hint resources
                 if (classHint.res_name) XFree(classHint.res_name);
                 if (classHint.res_class) XFree(classHint.res_class);
 
@@ -95,8 +67,6 @@ bool findWindowByClass(Window root, const std::string &target_class, Window &out
                     return true;
                 }
             }
-
-            // Recursive search
             if (findWindowByClass(children[i], target_class, outWin))
             {
                 if (children)
@@ -123,31 +93,24 @@ void getWindowGeometry(Window win)
     POSY = y;
     WIDTH = attr.width;
     HEIGHT = attr.height;
-
-    //std::cout << "Found target window at (" << POSX << "," << POSY << "), size " << WIDTH << "x" << HEIGHT << "\n";
 }
 
 void createOverlayWindow()
 {
-    XColor bgcolor = createXColorFromRGBA(0, 0, 0, 0);
     XVisualInfo vinfo;
     XMatchVisualInfo(g_display, DefaultScreen(g_display), 32, TrueColor, &vinfo);
 
     g_colormap = XCreateColormap(g_display, DefaultRootWindow(g_display), vinfo.visual, AllocNone);
     XSetWindowAttributes attr{};
     attr.background_pixmap = None;
-    attr.background_pixel = bgcolor.pixel;
     attr.border_pixel = 0;
-    attr.win_gravity = NorthWestGravity;
-    attr.bit_gravity = ForgetGravity;
-    attr.save_under = 1;
-    attr.event_mask = BASIC_EVENT_MASK;
-    attr.do_not_propagate_mask = NOT_PROPAGATE_MASK;
     attr.override_redirect = 1;
     attr.colormap = g_colormap;
+    attr.event_mask = BASIC_EVENT_MASK;
+    attr.do_not_propagate_mask = NOT_PROPAGATE_MASK;
 
-    unsigned long mask = CWColormap | CWBorderPixel | CWBackPixel | CWEventMask |
-                         CWWinGravity | CWBitGravity | CWSaveUnder | CWDontPropagate | CWOverrideRedirect;
+    unsigned long mask = CWColormap | CWBorderPixel | CWEventMask |
+                         CWDontPropagate | CWOverrideRedirect;
 
     g_win = XCreateWindow(g_display, DefaultRootWindow(g_display), POSX, POSY, WIDTH, HEIGHT, 0,
                           vinfo.depth, InputOutput, vinfo.visual, mask, &attr);
@@ -155,127 +118,29 @@ void createOverlayWindow()
     XShapeCombineMask(g_display, g_win, ShapeInput, 0, 0, None, ShapeSet);
     allow_input_passthrough(g_win);
     XMapWindow(g_display, g_win);
+
+    // Create Cairo surface for the window
+    cairo_surface = cairo_xlib_surface_create(g_display, g_win, vinfo.visual, WIDTH, HEIGHT);
+    cr = cairo_create(cairo_surface);
 }
 
-void initOverlay()
+void drawText(const char *text, int x, int y, double r, double g, double b, int align)
 {
-    g_screen = DefaultScreen(g_display);
-    createOverlayWindow();
+    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 24);
 
-    gc = XCreateGC(g_display, g_win, 0, 0);
-    font = XLoadQueryFont(g_display, font_name);
-    if (!font)
-    {
-        std::cerr << "Unable to load font " << font_name << std::endl;
-        font = XLoadQueryFont(g_display, "fixed");
-    }
+    cairo_text_extents_t extents;
+    cairo_text_extents(cr, text, &extents);
 
-    ltblue = createXColorFromRGBA(0, 255, 255, 255);
-    blacka = createXColorFromRGBA(0, 0, 0, 150);
-    white = createXColorFromRGBA(255, 255, 255, 255);
-    transparent = createXColorFromRGBA(255, 255, 255, 0);
-    outline = createXColorFromRGBA(0, 0, 0, 255); // Black outline
-}
+    double tx = x;
+    if (align == ALIGN_CENTER)
+        tx = x - extents.width / 2.0;
+    else if (align == ALIGN_RIGHT)
+        tx = x - extents.width;
 
-// Draw plain text without any background or outline
-void drawString(const char *text, int x, int y, XColor fg, int align)
-{
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
-    int text_x = x;
-
-    // Adjust positions based on alignment
-    switch(align) {
-        case ALIGN_CENTER:
-            text_x = x - text_width / 2;
-            break;
-        case ALIGN_RIGHT:
-            text_x = x - text_width;
-            break;
-        case ALIGN_LEFT:
-        default:
-            break;
-    }
-
-    XSetFont(g_display, gc, font->fid);
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
-}
-
-// Draw text with a background rectangle
-void drawStringBackground(const char *text, int x, int y, XColor fg, XColor bg, int align, int padding = 4)
-{
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
-    int rect_width = text_width + 2 * padding;
-    int rect_height = font_height + 2 * padding;
-    int rect_x = x;
-    int text_x = x;
-
-    // Adjust positions based on alignment
-    switch(align) {
-        case ALIGN_CENTER:
-            rect_x = x - rect_width / 2;
-            text_x = x - text_width / 2;
-            break;
-        case ALIGN_RIGHT:
-            rect_x = x - rect_width;
-            text_x = x - text_width;
-            break;
-        case ALIGN_LEFT:
-        default:
-            break;
-    }
-
-    XSetFont(g_display, gc, font->fid);
-    
-    // Draw background rectangle
-    XSetForeground(g_display, gc, bg.pixel);
-    XFillRectangle(g_display, g_win, gc, rect_x, y, rect_width, rect_height);
-    
-    // Draw text
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height + padding, text, tlen);
-}
-
-// Draw text with an outline
-void drawStringOutline(const char *text, int x, int y, XColor fg, XColor outline_color, int align, int outline_thickness = 2)
-{
-    int tlen = strlen(text);
-    int text_width = tlen * font_width;
-    int text_x = x;
-
-    // Adjust positions based on alignment
-    switch(align) {
-        case ALIGN_CENTER:
-            text_x = x - text_width / 2;
-            break;
-        case ALIGN_RIGHT:
-            text_x = x - text_width;
-            break;
-        case ALIGN_LEFT:
-        default:
-            break;
-    }
-
-    XSetFont(g_display, gc, font->fid);
-    
-    // Draw outline
-    XSetForeground(g_display, gc, outline_color.pixel);
-    for (int ox = -outline_thickness; ox <= outline_thickness; ox++) {
-        for (int oy = -outline_thickness; oy <= outline_thickness; oy++) {
-            if (ox != 0 || oy != 0) {
-                XDrawString(g_display, g_win, gc, 
-                            text_x + ox, 
-                            y + font_height + oy, 
-                            text, tlen);
-            }
-        }
-    }
-    
-    // Draw main text
-    XSetForeground(g_display, gc, fg.pixel);
-    XDrawString(g_display, g_win, gc, text_x, y + font_height, text, tlen);
+    cairo_set_source_rgba(cr, r, g, b, 1.0);
+    cairo_move_to(cr, tx, y + extents.height);
+    cairo_show_text(cr, text);
 }
 
 int main()
@@ -295,53 +160,34 @@ int main()
     }
 
     getWindowGeometry(target);
-    initOverlay();
+    createOverlayWindow();
 
     auto start_time = std::chrono::steady_clock::now();
 
     while (true)
     {
-        // Recalculate GStreamer window position & size
         getWindowGeometry(target);
-
-        // Move & resize overlay if needed
         XMoveResizeWindow(g_display, g_win, POSX, POSY, WIDTH, HEIGHT);
 
-        // Clear the window before redrawing
-        XClearWindow(g_display, g_win);
+        cairo_xlib_surface_set_size(cairo_surface, WIDTH, HEIGHT);
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        cairo_paint(cr);
+        cairo_restore(cr);
 
-        // Get elapsed time
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
         std::string text = std::to_string(elapsed) + " ms";
-        const char* timer_text = text.c_str();
 
-        // Draw timer in multiple positions with different styles
-        int vertical_padding = 20;
-        int horizontal_padding = 10;
-        
-        // Top-left: Plain text
-        drawString(timer_text, horizontal_padding, vertical_padding, white, ALIGN_LEFT);
-        
-        // Top-middle: Text with background
-        drawStringBackground(timer_text, WIDTH / 2, vertical_padding, white, blacka, ALIGN_CENTER);
-        
-        // Top-right: Text with outline
-        drawStringOutline(timer_text, WIDTH - horizontal_padding, vertical_padding, ltblue, outline, ALIGN_RIGHT);
-        
-        // Bottom-left: Text with background
-        drawStringBackground(timer_text, horizontal_padding, HEIGHT - vertical_padding, white, blacka, ALIGN_LEFT);
-        
-        // Bottom-middle: Text with outline
-        drawStringOutline(timer_text, WIDTH / 2, HEIGHT - vertical_padding, ltblue, outline, ALIGN_CENTER);
-        
-        // Bottom-right: Plain text
-        drawString(timer_text, WIDTH - horizontal_padding, HEIGHT - vertical_padding, white, ALIGN_RIGHT);
-        
-        // Center: Text with background
-        drawStringBackground(timer_text, WIDTH / 2, HEIGHT / 2, ltblue, blacka, ALIGN_CENTER);
+        drawText(text.c_str(), WIDTH / 2, HEIGHT / 2, 0.0, 1.0, 1.0, ALIGN_CENTER);
 
+        cairo_surface_flush(cairo_surface);
         XFlush(g_display);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    cairo_destroy(cr);
+    cairo_surface_destroy(cairo_surface);
+    XCloseDisplay(g_display);
+    return 0;
 }
