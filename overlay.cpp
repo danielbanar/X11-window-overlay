@@ -64,7 +64,7 @@ struct TextMetrics {
 struct ScopeTimer {
     const char* name;
     std::chrono::steady_clock::time_point start;
-    inline static long long threshold_ms = 1; // only print if >1 ms
+    inline static long long threshold_ms = 5; // only print if >1 ms
 
     ScopeTimer(const char* n) : name(n), start(std::chrono::steady_clock::now()) {}
     ~ScopeTimer() {
@@ -91,6 +91,7 @@ static inline bool utf8_next(const char* s, int len, int& i, FcChar32& out)
 
 XColor createXColorFromRGB(short r, short g, short b)
 {
+    ScopeTimer timer("createXColorFromRGB");
     XColor color;
     color.red   = (r * 0xFFFF) / 0xFF;
     color.green = (g * 0xFFFF) / 0xFF;
@@ -106,6 +107,7 @@ XColor createXColorFromRGB(short r, short g, short b)
 
 XColor createXColorFromRGBA(short r, short g, short b, short a)
 {
+    ScopeTimer timer("createXColorFromRGBA");
     XColor color = createXColorFromRGB(r, g, b);
     *(&color.pixel) = ((*(&color.pixel)) & 0x00ffffff) | (a << 24);
     return color;
@@ -113,6 +115,7 @@ XColor createXColorFromRGBA(short r, short g, short b, short a)
 
 XftColor createXftColor(short r, short g, short b, short a = 255)
 {
+    ScopeTimer timer("createXftColor");
     XftColor color;
     XRenderColor render_color;
     render_color.red   = (r * 0xFFFF) / 0xFF;
@@ -130,6 +133,7 @@ XftColor createXftColor(short r, short g, short b, short a = 255)
 
 void allow_input_passthrough(Window w)
 {
+    ScopeTimer timer("allow_input_passthrough");
     XserverRegion region = XFixesCreateRegion(g_display, NULL, 0);
     XFixesSetWindowShapeRegion(g_display, w, ShapeInput, 0, 0, region);
     XFixesDestroyRegion(g_display, region);
@@ -137,6 +141,7 @@ void allow_input_passthrough(Window w)
 
 bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
 {
+    ScopeTimer timer("findWindowByClass");
     Window root_return, parent_return;
     Window *children;
     unsigned int nchildren;
@@ -175,6 +180,7 @@ bool findWindowByClass(Window root, const std::string &target_class, Window &out
 
 void getWindowGeometry(Window win)
 {
+    ScopeTimer timer("getWindowGeometry");
     XWindowAttributes attr;
     XGetWindowAttributes(g_display, win, &attr);
 
@@ -190,6 +196,7 @@ void getWindowGeometry(Window win)
 
 void createOverlayWindow()
 {
+    ScopeTimer timer("createOverlayWindow");
     XColor bgcolor = createXColorFromRGBA(0, 0, 0, 0);
     XVisualInfo vinfo;
     XMatchVisualInfo(g_display, DefaultScreen(g_display), 32, TrueColor, &vinfo);
@@ -225,6 +232,7 @@ void createOverlayWindow()
 // --- font loading & fallback ---
 static XftFont* openFontFromFile(const char* path, double size)
 {
+    ScopeTimer timer("openFontFromFile");
     FcPattern* pattern = FcPatternCreate();
     FcPatternAddString(pattern, FC_FILE, (const FcChar8*)path);
     FcPatternAddDouble(pattern, FC_SIZE, size);
@@ -242,6 +250,7 @@ static XftFont* openFontFromFile(const char* path, double size)
 
 static XftFont* openFontByFamily(const char* family, double size)
 {
+    ScopeTimer timer("openFontByFamily");
     FcPattern* pat = FcPatternCreate();
     FcPatternAddString(pat, FC_FAMILY, (const FcChar8*)family);
     FcPatternAddDouble(pat, FC_SIZE, size);
@@ -258,6 +267,7 @@ static XftFont* openFontByFamily(const char* family, double size)
 
 static void computeLineMetrics()
 {
+    ScopeTimer timer("computeLineMetrics");
     line_ascent = 0;
     line_descent = 0;
     if (g_fonts.primary) {
@@ -274,6 +284,7 @@ static void computeLineMetrics()
 
 static bool loadFonts()
 {
+    ScopeTimer timer("loadFonts");
     if (!FcInit()) {
         std::cerr << "Failed to initialize FontConfig\n";
         return false;
@@ -306,6 +317,7 @@ static bool loadFonts()
 
 static XftFont* pickFontForChar(FcChar32 ch)
 {
+    ScopeTimer timer("pickFontForChar");
     if (g_fonts.primary && XftCharExists(g_display, g_fonts.primary, ch))
         return g_fonts.primary;
 
@@ -320,6 +332,7 @@ static XftFont* pickFontForChar(FcChar32 ch)
 static void utf8ToFontRuns(const char* text, int len,
                            std::vector<std::pair<XftFont*, std::string>>& runs)
 {
+    ScopeTimer timer("utf8ToFontRuns");
     int i = 0;
     XftFont* current = nullptr;
     std::string buf;
@@ -346,6 +359,7 @@ static void utf8ToFontRuns(const char* text, int len,
 // Precompute text metrics (runs and width)
 static TextMetrics computeTextMetrics(const char* text)
 {
+    ScopeTimer timer("computeTextMetrics");
     TextMetrics tm;
     int len = (int)strlen(text);
     utf8ToFontRuns(text, len, tm.runs);
@@ -362,6 +376,7 @@ static TextMetrics computeTextMetrics(const char* text)
 // Fast drawing of precomputed text runs
 static void drawTextRuns(XftDraw* draw, const TextMetrics& tm, int x, int baselineY, const XftColor* col)
 {
+    ScopeTimer timer("drawTextRuns");
     int penX = x;
     for (auto& r : tm.runs) {
         XGlyphInfo gi;
@@ -375,6 +390,7 @@ static void drawTextRuns(XftDraw* draw, const TextMetrics& tm, int x, int baseli
 static void drawTextRunsOutline(XftDraw* draw, const TextMetrics& tm, int x, int baselineY, 
                                const XftColor* fg, const XftColor* outline_color, int outline_thickness = 2)
 {
+    ScopeTimer timer("drawTextRunsOutline");
     // Draw outline first (only the outer pixels, not the full 3x3 grid)
     const int offsets[8][2] = {{-1,-1}, {-1,0}, {-1,1}, {0,-1}, {0,1}, {1,-1}, {1,0}, {1,1}};
     
@@ -403,6 +419,7 @@ static void drawTextRunsOutline(XftDraw* draw, const TextMetrics& tm, int x, int
 // --- overlay init ---
 void initOverlay()
 {
+    ScopeTimer timer("initOverlay");
     g_screen = DefaultScreen(g_display);
     createOverlayWindow();
 
@@ -438,6 +455,7 @@ void initOverlay()
 // --- drawString wrappers ---
 void drawString(const TextMetrics& tm, int x, int y, XftColor &fg, int align)
 {
+    ScopeTimer timer("drawString");
     int text_x = x;
     switch(align) {
         case ALIGN_CENTER: text_x = x - tm.width / 2; break;
@@ -451,6 +469,7 @@ void drawString(const TextMetrics& tm, int x, int y, XftColor &fg, int align)
 
 void drawStringBackground(const TextMetrics& tm, int x, int y, XftColor &fg, XColor &bg, int align, int padding = 4)
 {
+    ScopeTimer timer("drawStringBackground");
     int rect_width = tm.width + 2 * padding;
     int rect_height = font_height + 2 * padding;
 
@@ -481,6 +500,7 @@ void drawStringBackground(const TextMetrics& tm, int x, int y, XftColor &fg, XCo
 // --- optimized outline version ---
 void drawStringOutline(const TextMetrics& tm, int x, int y, XftColor &fg, XftColor &outline_color, int align, int outline_thickness = 2)
 {
+    ScopeTimer timer("drawStringOutline");
     int text_x = x;
     switch(align) {
         case ALIGN_CENTER: text_x = x - tm.width / 2; break;
@@ -496,6 +516,7 @@ void drawStringOutline(const TextMetrics& tm, int x, int y, XftColor &fg, XftCol
 // --- main loop ---
 int main()
 {
+    ScopeTimer main_timer("Main Loop");
     g_display = XOpenDisplay(0);
     if (!g_display)
     {
@@ -518,6 +539,7 @@ int main()
 
     while (true)
     {
+        ScopeTimer frame_timer("Frame");
         getWindowGeometry(target);
 
         bool size_changed = (WIDTH != last_width || HEIGHT != last_height);
