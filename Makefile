@@ -1,28 +1,20 @@
-CXX := g++
-CXXFLAGS := -std=c++11 -Wall -O2
-LDFLAGS := -lX11 -lXext -lXcomposite -lXfixes -lXft -lfontconfig
-INCLUDES := -I/usr/include/freetype2/
+CXX = g++
+CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I$(X11_DIR) `pkg-config --cflags xft fontconfig`
+LDFLAGS = `pkg-config --libs xft fontconfig` -lX11 -lXext -lXcomposite -lXfixes
 
-# Target executable name
-TARGET = overlay
+TARGET = overlay_xft
+X11_DIR = x11
+SRCS = main.cpp $(X11_DIR)/draw_x11.cpp
 
-# Source files
-SRCS = overlay.cpp
-
-# Default target
 all: $(TARGET)
 
-# Build the executable
 $(TARGET): $(SRCS)
-	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS) $(INCLUDES)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
 
-# Clean up build artifacts
 clean:
 	rm -f $(TARGET)
 
-# Install dependencies (Ubuntu/Debian)
-install-deps:
-	sudo apt-get install libcairo2-dev libx11-dev libxcomposite-dev libxfixes-dev
+deps:
+	sudo apt-get install libxft-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxfixes-dev
 
-# Phony targets
-.PHONY: all clean install-deps
+.PHONY: all clean deps
