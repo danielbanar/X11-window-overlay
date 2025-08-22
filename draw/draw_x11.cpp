@@ -1,20 +1,27 @@
-// draw_cairo.cpp
+// draw_x11.cpp (refactored with optimized internals from working.cpp)
 #include "draw.h"
+#include <X11/Xos.h>
+#include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/Xft/Xft.h>
-#include <X11/Xlib.h>
 #include <fontconfig/fontconfig.h>
-#include <iostream>
-#include <vector>
-#include <map>
 
-#define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask)
-#define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask)
+#include <algorithm>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+#define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask | EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask | KeymapStateMask)
+#define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ButtonMotionMask)
 
 namespace
 {
+
+    // --- X11 globals ---
     Display *display = nullptr;
     int screen = 0;
     Window target_window = 0;
@@ -25,11 +32,13 @@ namespace
     XftDraw *back_draw = nullptr;
     GC gc = nullptr;
 
+    // --- geometry ---
     int width = 0;
     int height = 0;
     int pos_x = 0;
     int pos_y = 0;
 
+    // --- fonts & metrics ---
     struct FontSet
     {
         XftFont *primary = nullptr;
@@ -40,18 +49,13 @@ namespace
     int line_descent = 0;
     int font_height = 0;
 
-    XftColor xft_white, xft_black, xft_ltblue, xft_outline;
-
-    struct TextMetrics
-    {
-        std::vector<std::pair<XftFont *, std::string>> runs;
-        int width;
-    };
-
-    std::map<std::string, TextMetrics> textMetricsCache;
-
     std::string font_family = "Consolas";
     int font_size = 20;
+
+    // --- colors (common ones we reuse) ---
+    XftColor xft_white, xft_black, xft_ltblue, xft_outline;
+
+    // --- UTF-8 helper from working.cpp ---
     bool utf8_next(const char *s, int len, int &i, FcChar32 &out)
     {
         if (i >= len)
@@ -81,23 +85,35 @@ namespace
         return true;
     }
 
+    // --- color helpers (float 0..1 inputs, like original API) ---
     XftColor createXftColor(double r, double g, double b, double a = 1.0)
     {
-        XftColor color;
-        XRenderColor render_color;
-        render_color.red = static_cast<short>(r * 0xFFFF);
-        render_color.green = static_cast<short>(g * 0xFFFF);
-        render_color.blue = static_cast<short>(b * 0xFFFF);
-        render_color.alpha = static_cast<short>(a * 0xFFFF);
+        XRenderColor rc;
+        rc.red = static_cast<unsigned short>(r * 65535.0);
+        rc.green = static_cast<unsigned short>(g * 65535.0);
+        rc.blue = static_cast<unsigned short>(b * 65535.0);
+        rc.alpha = static_cast<unsigned short>(a * 65535.0);
 
-        if (!XftColorAllocValue(display, visual, colormap, &render_color, &color))
+        XftColor color;
+        if (!XftColorAllocValue(display, visual, colormap, &rc, &color))
         {
-            std::cerr << "Cannot create Xft color" << std::endl;
-            exit(1);
+            std::cerr << "Cannot create Xft color\n";
+            std::abort();
         }
         return color;
     }
 
+    unsigned long rgba_to_pixel(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
+    {
+        // pack RGBA into 32bpp pixel (X11 ARGB32 visuals typically expect premultiplied alpha,
+        // but for our solid rect fills and transparent clears this is fine)
+        return (static_cast<unsigned long>(a) << 24) |
+               (static_cast<unsigned long>(r) << 16) |
+               (static_cast<unsigned long>(g) << 8) |
+               (static_cast<unsigned long>(b) << 0);
+    }
+
+    // --- input passthrough like working.cpp ---
     void allowInputPassthrough(Window w)
     {
         XserverRegion region = XFixesCreateRegion(display, NULL, 0);
@@ -105,6 +121,7 @@ namespace
         XFixesDestroyRegion(display, region);
     }
 
+    // --- window lookup (class match), recursive like working.cpp ---
     bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
     {
         Window root_return, parent_return;
@@ -113,14 +130,16 @@ namespace
 
         if (XQueryTree(display, root, &root_return, &parent_return, &children, &nchildren))
         {
-            for (unsigned int i = 0; i < nchildren; i++)
+            for (unsigned int i = 0; i < nchildren; ++i)
             {
                 XClassHint classHint;
                 if (XGetClassHint(display, children[i], &classHint))
                 {
                     bool match = false;
                     if (classHint.res_class && std::string(classHint.res_class) == target_class)
+                    {
                         match = true;
+                    }
                     if (classHint.res_name)
                         XFree(classHint.res_name);
                     if (classHint.res_class)
@@ -147,6 +166,7 @@ namespace
         return false;
     }
 
+    // --- geometry helpers ---
     void getWindowGeometry(Window win)
     {
         XWindowAttributes attr;
@@ -162,6 +182,7 @@ namespace
         height = attr.height;
     }
 
+    // --- font loading (by family, honoring Draw::setFont) ---
     XftFont *openFontByFamily(const char *family, double size)
     {
         FcPattern *pat = FcPatternCreate();
@@ -216,7 +237,6 @@ namespace
         const char *fallbackFamilies[] = {
             "Noto Color Emoji", "Noto Emoji", "EmojiOne Color", "Twitter Color Emoji",
             "Segoe UI Symbol", "Symbola", "DejaVu Sans", "DejaVu Sans Mono", "Liberation Sans"};
-
         for (const char *fam : fallbackFamilies)
         {
             if (auto *f = openFontByFamily(fam, font_size))
@@ -241,6 +261,15 @@ namespace
         return fonts.primary;
     }
 
+    // --- precomputed runs + metrics (from working.cpp approach) ---
+    struct TextMetrics
+    {
+        std::vector<std::pair<XftFont *, std::string>> runs;
+        int width = 0;
+    };
+
+    std::map<std::string, TextMetrics> textMetricsCache;
+
     void utf8ToFontRuns(const char *text, int len, std::vector<std::pair<XftFont *, std::string>> &runs)
     {
         int i = 0;
@@ -255,9 +284,7 @@ namespace
             XftFont *f = pickFontForChar(cp);
 
             if (current == nullptr)
-            {
                 current = f;
-            }
             if (f != current)
             {
                 if (!buf.empty())
@@ -273,26 +300,23 @@ namespace
 
     TextMetrics computeTextMetrics(const std::string &text)
     {
-        // Check cache first
-        if (textMetricsCache.find(text) != textMetricsCache.end())
-        {
-            return textMetricsCache[text];
-        }
+        auto it = textMetricsCache.find(text);
+        if (it != textMetricsCache.end())
+            return it->second;
 
         TextMetrics tm;
-        int len = text.length();
-        utf8ToFontRuns(text.c_str(), len, tm.runs);
+        utf8ToFontRuns(text.c_str(), static_cast<int>(text.size()), tm.runs);
 
         tm.width = 0;
         for (auto &r : tm.runs)
         {
             XGlyphInfo gi;
-            XftTextExtentsUtf8(display, r.first, (const FcChar8 *)r.second.c_str(), r.second.size(), &gi);
+            XftTextExtentsUtf8(display, r.first,
+                               (const FcChar8 *)r.second.c_str(),
+                               (int)r.second.size(), &gi);
             tm.width += gi.xOff;
         }
-
-        // Cache the result
-        textMetricsCache[text] = tm;
+        textMetricsCache.emplace(text, tm);
         return tm;
     }
 
@@ -302,20 +326,21 @@ namespace
         for (auto &r : tm.runs)
         {
             XGlyphInfo gi;
-            XftTextExtentsUtf8(display, r.first, (const FcChar8 *)r.second.c_str(), r.second.size(), &gi);
+            XftTextExtentsUtf8(display, r.first,
+                               (const FcChar8 *)r.second.c_str(),
+                               (int)r.second.size(), &gi);
             XftDrawStringUtf8(back_draw, col, r.first, penX, baselineY,
-                              (const FcChar8 *)r.second.c_str(), r.second.size());
+                              (const FcChar8 *)r.second.c_str(), (int)r.second.size());
             penX += gi.xOff;
         }
     }
 
     void drawTextRunsOutline(const TextMetrics &tm, int x, int baselineY,
-                             const XftColor *fg, const XftColor *outline_color, int outline_thickness)
+                             const XftColor *fg, const XftColor *outline_color, int outline_thickness = 2)
     {
-        // Draw outline first
+        // 8-neighborhood outline (optimized like working.cpp)
         const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
-
-        for (int i = 0; i < 8; i++)
+        for (int i = 0; i < 8; ++i)
         {
             int penX = x + offsets[i][0] * outline_thickness;
             int penY = baselineY + offsets[i][1] * outline_thickness;
@@ -323,25 +348,30 @@ namespace
             for (auto &r : tm.runs)
             {
                 XGlyphInfo gi;
-                XftTextExtentsUtf8(display, r.first, (const FcChar8 *)r.second.c_str(), r.second.size(), &gi);
+                XftTextExtentsUtf8(display, r.first,
+                                   (const FcChar8 *)r.second.c_str(),
+                                   (int)r.second.size(), &gi);
                 XftDrawStringUtf8(back_draw, outline_color, r.first, penX, penY,
-                                  (const FcChar8 *)r.second.c_str(), r.second.size());
+                                  (const FcChar8 *)r.second.c_str(), (int)r.second.size());
                 penX += gi.xOff;
             }
         }
 
-        // Draw main text
+        // main fill
         int penX = x;
         for (auto &r : tm.runs)
         {
             XGlyphInfo gi;
-            XftTextExtentsUtf8(display, r.first, (const FcChar8 *)r.second.c_str(), r.second.size(), &gi);
+            XftTextExtentsUtf8(display, r.first,
+                               (const FcChar8 *)r.second.c_str(),
+                               (int)r.second.size(), &gi);
             XftDrawStringUtf8(back_draw, fg, r.first, penX, baselineY,
-                              (const FcChar8 *)r.second.c_str(), r.second.size());
+                              (const FcChar8 *)r.second.c_str(), (int)r.second.size());
             penX += gi.xOff;
         }
     }
 
+    // --- overlay window creation (transparent, backing store etc., from working.cpp style) ---
     void createOverlayWindow()
     {
         XVisualInfo vinfo;
@@ -349,40 +379,54 @@ namespace
         visual = vinfo.visual;
 
         colormap = XCreateColormap(display, DefaultRootWindow(display), vinfo.visual, AllocNone);
+
         XSetWindowAttributes attr{};
         attr.background_pixmap = None;
+        attr.background_pixel = rgba_to_pixel(0, 0, 0, 0);
         attr.border_pixel = 0;
-        attr.override_redirect = 1;
-        attr.colormap = colormap;
+        attr.win_gravity = NorthWestGravity;
+        attr.bit_gravity = ForgetGravity;
+        attr.save_under = 1;
         attr.event_mask = BASIC_EVENT_MASK;
         attr.do_not_propagate_mask = NOT_PROPAGATE_MASK;
+        attr.override_redirect = 1;
+        attr.colormap = colormap;
+        attr.backing_store = Always;
 
-        unsigned long mask = CWColormap | CWBorderPixel | CWEventMask | CWDontPropagate | CWOverrideRedirect;
+        unsigned long mask = CWColormap | CWBorderPixel | CWBackPixel | CWEventMask |
+                             CWWinGravity | CWBitGravity | CWSaveUnder | CWDontPropagate |
+                             CWOverrideRedirect | CWBackingStore;
 
-        overlay_window = XCreateWindow(display, DefaultRootWindow(display), pos_x, pos_y, width, height, 0,
+        overlay_window = XCreateWindow(display, DefaultRootWindow(display),
+                                       pos_x, pos_y, width, height, 0,
                                        vinfo.depth, InputOutput, vinfo.visual, mask, &attr);
 
+        // back buffer pixmap
+        back_buffer = XCreatePixmap(display, overlay_window, width, height, vinfo.depth);
+
+        // click-through
         XShapeCombineMask(display, overlay_window, ShapeInput, 0, 0, None, ShapeSet);
         allowInputPassthrough(overlay_window);
         XMapWindow(display, overlay_window);
 
-        // Create back buffer
-        back_buffer = XCreatePixmap(display, overlay_window, width, height, vinfo.depth);
+        // drawing targets
         back_draw = XftDrawCreate(display, back_buffer, visual, colormap);
         gc = XCreateGC(display, back_buffer, 0, 0);
     }
 
-}
+} // namespace (internals)
+
+// ========================= PUBLIC API (unchanged) =========================
+// Mirrors original draw_x11.cpp interfaces (Draw::* and Overlay::*)
 
 namespace Draw
 {
 
     void setFont(const char *family, int size)
     {
-        font_family = family;
-        font_size = size;
+        font_family = family ? family : font_family;
+        font_size = size > 0 ? size : font_size;
 
-        // Reload fonts with new settings
         if (fonts.primary)
             XftFontClose(display, fonts.primary);
         for (auto *f : fonts.fallbacks)
@@ -391,14 +435,14 @@ namespace Draw
         fonts.fallbacks.clear();
 
         loadFonts();
-        textMetricsCache.clear(); // Clear cache when font changes
+        textMetricsCache.clear();
     }
 
     void drawStringPlain(const std::string &text, int x, int y,
                          double r, double g, double b, int align)
     {
         TextMetrics tm = computeTextMetrics(text);
-        XftColor color = createXftColor(r, g, b);
+        XftColor color = createXftColor(r, g, b, 1.0);
 
         int text_x = x;
         if (align == ALIGN_CENTER)
@@ -408,6 +452,7 @@ namespace Draw
 
         int baseline = y + line_ascent;
         drawTextRuns(tm, text_x, baseline, &color);
+
         XftColorFree(display, visual, colormap, &color);
     }
 
@@ -417,8 +462,8 @@ namespace Draw
                            double outline_width, int align)
     {
         TextMetrics tm = computeTextMetrics(text);
-        XftColor fg_color = createXftColor(r, g, b);
-        XftColor outline_color = createXftColor(outline_r, outline_g, outline_b, outline_a);
+        XftColor fg = createXftColor(r, g, b, 1.0);
+        XftColor outline = createXftColor(outline_r, outline_g, outline_b, outline_a);
 
         int text_x = x;
         if (align == ALIGN_CENTER)
@@ -427,10 +472,10 @@ namespace Draw
             text_x = x - tm.width;
 
         int baseline = y + line_ascent;
-        drawTextRunsOutline(tm, text_x, baseline, &fg_color, &outline_color, static_cast<int>(outline_width));
+        drawTextRunsOutline(tm, text_x, baseline, &fg, &outline, (int)std::max(1.0, outline_width));
 
-        XftColorFree(display, visual, colormap, &fg_color);
-        XftColorFree(display, visual, colormap, &outline_color);
+        XftColorFree(display, visual, colormap, &fg);
+        XftColorFree(display, visual, colormap, &outline);
     }
 
     void drawStringBackground(const std::string &text, int x, int y,
@@ -439,14 +484,14 @@ namespace Draw
                               int padding, int align)
     {
         TextMetrics tm = computeTextMetrics(text);
-        XftColor fg_color = createXftColor(r, g, b);
+        XftColor fg = createXftColor(r, g, b, 1.0);
 
-        XColor bg_color;
-        bg_color.red = static_cast<unsigned short>(bg_r * 65535);
-        bg_color.green = static_cast<unsigned short>(bg_g * 65535);
-        bg_color.blue = static_cast<unsigned short>(bg_b * 65535);
-        bg_color.flags = DoRed | DoGreen | DoBlue;
-        XAllocColor(display, colormap, &bg_color);
+        // convert bg color to X11 pixel
+        unsigned long bg_pixel = rgba_to_pixel(
+            (unsigned char)(bg_r * 255.0),
+            (unsigned char)(bg_g * 255.0),
+            (unsigned char)(bg_b * 255.0),
+            (unsigned char)(bg_a * 255.0));
 
         int rect_width = tm.width + 2 * padding;
         int rect_height = font_height + 2 * padding;
@@ -469,16 +514,16 @@ namespace Draw
             break;
         }
 
-        XSetForeground(display, gc, bg_color.pixel);
+        XSetForeground(display, gc, bg_pixel);
         XFillRectangle(display, back_buffer, gc, rect_x, y - padding, rect_width, rect_height);
 
         int baseline = y + line_ascent;
-        drawTextRuns(tm, text_x, baseline, &fg_color);
+        drawTextRuns(tm, text_x, baseline, &fg);
 
-        XftColorFree(display, visual, colormap, &fg_color);
+        XftColorFree(display, visual, colormap, &fg);
     }
 
-}
+} // namespace Draw
 
 namespace Overlay
 {
@@ -488,32 +533,37 @@ namespace Overlay
         display = XOpenDisplay(0);
         if (!display)
         {
-            std::cerr << "Failed to open X display" << std::endl;
+            std::cerr << "Failed to open X display\n";
             return false;
         }
 
         screen = DefaultScreen(display);
 
-        if (!findWindowByClass(DefaultRootWindow(display), window_class, target_window))
+        if (!findWindowByClass(DefaultRootWindow(display),
+                               window_class ? std::string(window_class) : std::string(),
+                               target_window))
         {
-            std::cerr << "Could not find window with class '" << window_class << "'\n";
+            std::cerr << "Could not find window with class '" << (window_class ? window_class : "") << "'\n";
             XCloseDisplay(display);
             display = nullptr;
             return false;
         }
 
+        // geometry & overlay window
         getWindowGeometry(target_window);
         createOverlayWindow();
 
+        // font setup
         if (!loadFonts())
         {
             std::cerr << "Failed to load fonts\n";
             return false;
         }
 
-        xft_white = createXftColor(1.0, 1.0, 1.0);
-        xft_black = createXftColor(0.0, 0.0, 0.0);
-        xft_ltblue = createXftColor(0.0, 1.0, 1.0);
+        // common preset colors
+        xft_white = createXftColor(1.0, 1.0, 1.0, 1.0);
+        xft_black = createXftColor(0.0, 0.0, 0.0, 1.0);
+        xft_ltblue = createXftColor(0.0, 1.0, 1.0, 1.0);
         xft_outline = createXftColor(0.0, 0.0, 0.0, 1.0);
 
         return true;
@@ -522,11 +572,20 @@ namespace Overlay
     void shutdown()
     {
         if (back_draw)
+        {
             XftDrawDestroy(back_draw);
+            back_draw = nullptr;
+        }
         if (back_buffer)
+        {
             XFreePixmap(display, back_buffer);
+            back_buffer = 0;
+        }
         if (gc)
+        {
             XFreeGC(display, gc);
+            gc = nullptr;
+        }
 
         if (fonts.primary)
             XftFontClose(display, fonts.primary);
@@ -545,13 +604,11 @@ namespace Overlay
             XDestroyWindow(display, overlay_window);
             overlay_window = 0;
         }
-
         if (colormap)
         {
             XFreeColormap(display, colormap);
             colormap = 0;
         }
-
         if (display)
         {
             XCloseDisplay(display);
@@ -563,14 +620,13 @@ namespace Overlay
 
     void beginFrame()
     {
-        // Clear back buffer with transparent background
-        XSetForeground(display, gc, 0);
+        // clear back buffer to fully transparent
+        XSetForeground(display, gc, rgba_to_pixel(0, 0, 0, 0));
         XFillRectangle(display, back_buffer, gc, 0, 0, width, height);
     }
 
     void endFrame()
     {
-        // Copy back buffer to window
         XCopyArea(display, back_buffer, overlay_window, gc, 0, 0, width, height, 0, 0);
         XFlush(display);
     }
@@ -580,16 +636,24 @@ namespace Overlay
         getWindowGeometry(target_window);
         XMoveResizeWindow(display, overlay_window, pos_x, pos_y, width, height);
 
-        // Recreate back buffer if size changed
-        static int last_width = 0, last_height = 0;
-        if (width != last_width || height != last_height)
+        static int last_w = 0, last_h = 0;
+        if (width != last_w || height != last_h)
         {
             if (back_draw)
+            {
                 XftDrawDestroy(back_draw);
+                back_draw = nullptr;
+            }
             if (back_buffer)
+            {
                 XFreePixmap(display, back_buffer);
+                back_buffer = 0;
+            }
             if (gc)
+            {
                 XFreeGC(display, gc);
+                gc = nullptr;
+            }
 
             XVisualInfo vinfo;
             XMatchVisualInfo(display, screen, 32, TrueColor, &vinfo);
@@ -597,18 +661,12 @@ namespace Overlay
             back_draw = XftDrawCreate(display, back_buffer, visual, colormap);
             gc = XCreateGC(display, back_buffer, 0, 0);
 
-            last_width = width;
-            last_height = height;
+            last_w = width;
+            last_h = height;
         }
     }
 
-    int getWidth()
-    {
-        return width;
-    }
+    int getWidth() { return width; }
+    int getHeight() { return height; }
 
-    int getHeight()
-    {
-        return height;
-    }
-}
+} // namespace Overlay

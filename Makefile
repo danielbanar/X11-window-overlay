@@ -3,7 +3,7 @@ DRAW_DIR = draw
 
 # Common flags
 CXXFLAGS_COMMON = -std=c++11 -Wall -Wextra -O2
-LDFLAGS_COMMON = -lX11 -lXext -lXcomposite -lXfixes
+LDFLAGS_COMMON = -lX11 -lXext -lXcomposite -lXfixes -lXrender
 
 # XFT target
 XFT_TARGET = overlay_xft
