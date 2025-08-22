@@ -1,19 +1,19 @@
-#include "draw_cairo.h"
 #include <pango/pangocairo.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xfixes.h>
 #include <cairo/cairo-xlib.h>
 #include <iostream>
+#include "draw.h"
 
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask)
 
 namespace {
 
-// Drawing functions internal state
 std::string font_family = "Consolas";
 int font_size = 20;
+cairo_t* current_cr = nullptr;
 
 void setLayoutFont(PangoLayout *layout) {
     std::string descStr = font_family + " " + std::to_string(font_size);
@@ -22,7 +22,6 @@ void setLayoutFont(PangoLayout *layout) {
     pango_font_description_free(desc);
 }
 
-// Overlay window internal state
 Display *display = nullptr;
 Window target_window = 0;
 Window overlay_window = 0;
@@ -124,18 +123,20 @@ void ensureOffscreenBuffer() {
     }
 }
 
-} // anonymous namespace
+}
 
-namespace DrawingFunctions {
+namespace Draw {
 
 void setFont(const char* family, int size) {
     font_family = family;
     font_size = size;
 }
 
-void drawStringPlain(cairo_t* ctx, const std::string &text, int x, int y, 
+void drawStringPlain(const std::string &text, int x, int y, 
                     double r, double g, double b, int align) {
-    PangoLayout *layout = pango_cairo_create_layout(ctx);
+    if (!current_cr) return;
+    
+    PangoLayout *layout = pango_cairo_create_layout(current_cr);
     setLayoutFont(layout);
     pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -148,18 +149,20 @@ void drawStringPlain(cairo_t* ctx, const std::string &text, int x, int y,
     if (align == ALIGN_CENTER) tx = x - w / 2.0;
     else if (align == ALIGN_RIGHT) tx = x - w;
 
-    cairo_set_source_rgba(ctx, r, g, b, 1.0);
-    cairo_move_to(ctx, tx, y - h / 2.0);
-    pango_cairo_show_layout(ctx, layout);
+    cairo_set_source_rgba(current_cr, r, g, b, 1.0);
+    cairo_move_to(current_cr, tx, y - h / 2.0);
+    pango_cairo_show_layout(current_cr, layout);
 
     g_object_unref(layout);
 }
 
-void drawStringOutline(cairo_t* ctx, const std::string &text, int x, int y,
+void drawStringOutline(const std::string &text, int x, int y,
                       double r, double g, double b, 
                       double outline_r, double outline_g, double outline_b, double outline_a,
                       double outline_width, int align) {
-    PangoLayout *layout = pango_cairo_create_layout(ctx);
+    if (!current_cr) return;
+    
+    PangoLayout *layout = pango_cairo_create_layout(current_cr);
     setLayoutFont(layout);
     pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -172,26 +175,28 @@ void drawStringOutline(cairo_t* ctx, const std::string &text, int x, int y,
     if (align == ALIGN_CENTER) tx = x - w / 2.0;
     else if (align == ALIGN_RIGHT) tx = x - w;
 
-    cairo_save(ctx);
-    cairo_set_source_rgba(ctx, outline_r, outline_g, outline_b, outline_a);
-    cairo_set_line_width(ctx, outline_width);
-    cairo_move_to(ctx, tx, y - h / 2.0);
-    pango_cairo_layout_path(ctx, layout);
-    cairo_stroke(ctx);
-    cairo_restore(ctx);
+    cairo_save(current_cr);
+    cairo_set_source_rgba(current_cr, outline_r, outline_g, outline_b, outline_a);
+    cairo_set_line_width(current_cr, outline_width);
+    cairo_move_to(current_cr, tx, y - h / 2.0);
+    pango_cairo_layout_path(current_cr, layout);
+    cairo_stroke(current_cr);
+    cairo_restore(current_cr);
 
-    cairo_set_source_rgba(ctx, r, g, b, 1.0);
-    cairo_move_to(ctx, tx, y - h / 2.0);
-    pango_cairo_show_layout(ctx, layout);
+    cairo_set_source_rgba(current_cr, r, g, b, 1.0);
+    cairo_move_to(current_cr, tx, y - h / 2.0);
+    pango_cairo_show_layout(current_cr, layout);
 
     g_object_unref(layout);
 }
 
-void drawStringBackground(cairo_t* ctx, const std::string &text, int x, int y,
+void drawStringBackground(const std::string &text, int x, int y,
                          double r, double g, double b, 
                          double bg_r, double bg_g, double bg_b, double bg_a,
                          int padding, int align) {
-    PangoLayout *layout = pango_cairo_create_layout(ctx);
+    if (!current_cr) return;
+    
+    PangoLayout *layout = pango_cairo_create_layout(current_cr);
     setLayoutFont(layout);
     pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -204,20 +209,20 @@ void drawStringBackground(cairo_t* ctx, const std::string &text, int x, int y,
     if (align == ALIGN_CENTER) tx = x - w / 2.0;
     else if (align == ALIGN_RIGHT) tx = x - w;
 
-    cairo_set_source_rgba(ctx, bg_r, bg_g, bg_b, bg_a);
-    cairo_rectangle(ctx, tx - padding, y - h / 2.0 - padding, w + 2 * padding, h + 2 * padding);
-    cairo_fill(ctx);
+    cairo_set_source_rgba(current_cr, bg_r, bg_g, bg_b, bg_a);
+    cairo_rectangle(current_cr, tx - padding, y - h / 2.0 - padding, w + 2 * padding, h + 2 * padding);
+    cairo_fill(current_cr);
 
-    cairo_set_source_rgba(ctx, r, g, b, 1.0);
-    cairo_move_to(ctx, tx, y - h / 2.0);
-    pango_cairo_show_layout(ctx, layout);
+    cairo_set_source_rgba(current_cr, r, g, b, 1.0);
+    cairo_move_to(current_cr, tx, y - h / 2.0);
+    pango_cairo_show_layout(current_cr, layout);
 
     g_object_unref(layout);
 }
 
-} // namespace DrawingFunctions
+}
 
-namespace OverlayWindow {
+namespace Overlay {
 
 bool initialize(const char* window_class) {
     display = XOpenDisplay(0);
@@ -262,6 +267,7 @@ void shutdown() {
 void beginFrame() {
     ensureOffscreenBuffer();
     cr = cairo_create(offscreen_surface);
+    current_cr = cr;
     
     // Clear with transparent background
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -275,6 +281,7 @@ void endFrame() {
     
     cairo_destroy(cr);
     cr = nullptr;
+    current_cr = nullptr;
     
     // Blit offscreen buffer to window
     cairo_t* window_cr = cairo_create(cairo_surface);
@@ -301,8 +308,4 @@ int getHeight() {
     return height;
 }
 
-cairo_t* getCairoContext() {
-    return cr;
 }
-
-} // namespace OverlayWindowcan 

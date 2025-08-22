@@ -1,14 +1,14 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -Icairo `pkg-config --cflags cairo pangocairo`
+CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -I$(DRAW_DIR) `pkg-config --cflags cairo pangocairo`
 LDFLAGS = `pkg-config --libs cairo pangocairo` -lX11 -lXext -lXcomposite -lXfixes -lfontconfig
 
 TARGET = overlay_cairo
-CAIRO_DIR = cairo
-SRCS = main.cpp $(CAIRO_DIR)/draw_cairo.cpp
+DRAW_DIR = draw
+SRCS = main.cpp $(DRAW_DIR)/cairo/draw_cairo.cpp
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) $(CAIRO_DIR)/draw_cairo.h
+$(TARGET): $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
 
 clean:

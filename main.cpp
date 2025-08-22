@@ -1,24 +1,23 @@
-#include "draw_cairo.h"
 #include <chrono>
 #include <thread>
 #include <iostream>
+#include "draw.h"
 
 int main() {
-    if (!OverlayWindow::initialize("GStreamer")) {
+    if (!Overlay::initialize("GStreamer")) {
         return 1;
     }
     
-    DrawingFunctions::setFont("Consolas", 20);
+    Draw::setFont("Consolas", 20);
     
     auto start_time = std::chrono::steady_clock::now();
 
     while (true) {
-        OverlayWindow::updateWindowPosition();
-        OverlayWindow::beginFrame();
+        Overlay::updateWindowPosition();
+        Overlay::beginFrame();
         
-        cairo_t* cr = OverlayWindow::getCairoContext();
-        int width = OverlayWindow::getWidth();
-        int height = OverlayWindow::getHeight();
+        int width = Overlay::getWidth();
+        int height = Overlay::getHeight();
         
         auto now = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
@@ -27,19 +26,19 @@ int main() {
         int padV = 20;
         int padH = 10;
         
-        DrawingFunctions::drawStringPlain(cr, text, padH, padV, 1.0, 1.0, 1.0, ALIGN_LEFT);
-        DrawingFunctions::drawStringBackground(cr, text, width / 2, padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_CENTER);
-        DrawingFunctions::drawStringOutline(cr, text, width - padH, padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_RIGHT);
-        DrawingFunctions::drawStringBackground(cr, text, padH, height - padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
-        DrawingFunctions::drawStringOutline(cr, text, width / 2, height - padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_CENTER);
-        DrawingFunctions::drawStringPlain(cr, text, width - padH, height - padV, 1.0, 1.0, 1.0, ALIGN_RIGHT);
-        DrawingFunctions::drawStringBackground(cr, text, width / 2, height / 2, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 8, ALIGN_CENTER);
+        Draw::drawStringPlain(text, padH, padV, 1.0, 1.0, 1.0, ALIGN_LEFT);
+        Draw::drawStringBackground(text, width / 2, padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_CENTER);
+        Draw::drawStringOutline(text, width - padH, padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_RIGHT);
+        Draw::drawStringBackground(text, padH, height - padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
+        Draw::drawStringOutline(text, width / 2, height - padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_CENTER);
+        Draw::drawStringPlain(text, width - padH, height - padV, 1.0, 1.0, 1.0, ALIGN_RIGHT);
+        Draw::drawStringBackground(text, width / 2, height / 2, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 8, ALIGN_CENTER);
         
-        OverlayWindow::endFrame();
+        Overlay::endFrame();
         
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     
-    OverlayWindow::shutdown();
+    Overlay::shutdown();
     return 0;
 }
