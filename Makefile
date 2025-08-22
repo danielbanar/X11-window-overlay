@@ -4,11 +4,11 @@ LDFLAGS = `pkg-config --libs cairo pangocairo` -lX11 -lXext -lXcomposite -lXfixe
 
 TARGET = overlay_cairo
 CAIRO_DIR = cairo
-SRCS = main.cpp $(CAIRO_DIR)/overlay_window.cpp $(CAIRO_DIR)/drawing_functions.cpp
+SRCS = main.cpp $(CAIRO_DIR)/draw_cairo.cpp
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) $(CAIRO_DIR)/overlay_window.h $(CAIRO_DIR)/drawing_functions.h
+$(TARGET): $(SRCS) $(CAIRO_DIR)/draw_cairo.h
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
 
 clean:
