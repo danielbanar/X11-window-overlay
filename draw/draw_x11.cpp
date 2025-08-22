@@ -1,4 +1,3 @@
-// draw_x11.cpp (refactored with optimized internals from working.cpp)
 #include "draw.h"
 #include <X11/Xos.h>
 #include <X11/Xlib.h>
@@ -21,7 +20,6 @@
 namespace
 {
 
-    // --- X11 globals ---
     Display *display = nullptr;
     int screen = 0;
     Window target_window = 0;
@@ -32,13 +30,11 @@ namespace
     XftDraw *back_draw = nullptr;
     GC gc = nullptr;
 
-    // --- geometry ---
     int width = 0;
     int height = 0;
     int pos_x = 0;
     int pos_y = 0;
 
-    // --- fonts & metrics ---
     struct FontSet
     {
         XftFont *primary = nullptr;
@@ -52,10 +48,8 @@ namespace
     std::string font_family = "Consolas";
     int font_size = 20;
 
-    // --- colors (common ones we reuse) ---
     XftColor xft_white, xft_black, xft_ltblue, xft_outline;
 
-    // --- UTF-8 helper from working.cpp ---
     bool utf8_next(const char *s, int len, int &i, FcChar32 &out)
     {
         if (i >= len)
@@ -85,7 +79,6 @@ namespace
         return true;
     }
 
-    // --- color helpers (float 0..1 inputs, like original API) ---
     XftColor createXftColor(double r, double g, double b, double a = 1.0)
     {
         XRenderColor rc;
@@ -105,15 +98,12 @@ namespace
 
     unsigned long rgba_to_pixel(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
     {
-        // pack RGBA into 32bpp pixel (X11 ARGB32 visuals typically expect premultiplied alpha,
-        // but for our solid rect fills and transparent clears this is fine)
         return (static_cast<unsigned long>(a) << 24) |
                (static_cast<unsigned long>(r) << 16) |
                (static_cast<unsigned long>(g) << 8) |
                (static_cast<unsigned long>(b) << 0);
     }
 
-    // --- input passthrough like working.cpp ---
     void allowInputPassthrough(Window w)
     {
         XserverRegion region = XFixesCreateRegion(display, NULL, 0);
@@ -121,7 +111,6 @@ namespace
         XFixesDestroyRegion(display, region);
     }
 
-    // --- window lookup (class match), recursive like working.cpp ---
     bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
     {
         Window root_return, parent_return;
@@ -166,7 +155,6 @@ namespace
         return false;
     }
 
-    // --- geometry helpers ---
     void getWindowGeometry(Window win)
     {
         XWindowAttributes attr;
@@ -182,7 +170,6 @@ namespace
         height = attr.height;
     }
 
-    // --- font loading (by family, honoring Draw::setFont) ---
     XftFont *openFontByFamily(const char *family, double size)
     {
         FcPattern *pat = FcPatternCreate();
@@ -261,7 +248,6 @@ namespace
         return fonts.primary;
     }
 
-    // --- precomputed runs + metrics (from working.cpp approach) ---
     struct TextMetrics
     {
         std::vector<std::pair<XftFont *, std::string>> runs;
@@ -338,7 +324,6 @@ namespace
     void drawTextRunsOutline(const TextMetrics &tm, int x, int baselineY,
                              const XftColor *fg, const XftColor *outline_color, int outline_thickness = 2)
     {
-        // 8-neighborhood outline (optimized like working.cpp)
         const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
         for (int i = 0; i < 8; ++i)
         {
@@ -357,7 +342,6 @@ namespace
             }
         }
 
-        // main fill
         int penX = x;
         for (auto &r : tm.runs)
         {
@@ -371,7 +355,6 @@ namespace
         }
     }
 
-    // --- overlay window creation (transparent, backing store etc., from working.cpp style) ---
     void createOverlayWindow()
     {
         XVisualInfo vinfo;
@@ -401,23 +384,17 @@ namespace
                                        pos_x, pos_y, width, height, 0,
                                        vinfo.depth, InputOutput, vinfo.visual, mask, &attr);
 
-        // back buffer pixmap
         back_buffer = XCreatePixmap(display, overlay_window, width, height, vinfo.depth);
 
-        // click-through
         XShapeCombineMask(display, overlay_window, ShapeInput, 0, 0, None, ShapeSet);
         allowInputPassthrough(overlay_window);
         XMapWindow(display, overlay_window);
 
-        // drawing targets
         back_draw = XftDrawCreate(display, back_buffer, visual, colormap);
         gc = XCreateGC(display, back_buffer, 0, 0);
     }
 
-} // namespace (internals)
-
-// ========================= PUBLIC API (unchanged) =========================
-// Mirrors original draw_x11.cpp interfaces (Draw::* and Overlay::*)
+}
 
 namespace Draw
 {
@@ -486,7 +463,6 @@ namespace Draw
         TextMetrics tm = computeTextMetrics(text);
         XftColor fg = createXftColor(r, g, b, 1.0);
 
-        // convert bg color to X11 pixel
         unsigned long bg_pixel = rgba_to_pixel(
             (unsigned char)(bg_r * 255.0),
             (unsigned char)(bg_g * 255.0),
@@ -523,7 +499,7 @@ namespace Draw
         XftColorFree(display, visual, colormap, &fg);
     }
 
-} // namespace Draw
+}
 
 namespace Overlay
 {
@@ -549,18 +525,15 @@ namespace Overlay
             return false;
         }
 
-        // geometry & overlay window
         getWindowGeometry(target_window);
         createOverlayWindow();
 
-        // font setup
         if (!loadFonts())
         {
             std::cerr << "Failed to load fonts\n";
             return false;
         }
 
-        // common preset colors
         xft_white = createXftColor(1.0, 1.0, 1.0, 1.0);
         xft_black = createXftColor(0.0, 0.0, 0.0, 1.0);
         xft_ltblue = createXftColor(0.0, 1.0, 1.0, 1.0);
@@ -620,7 +593,6 @@ namespace Overlay
 
     void beginFrame()
     {
-        // clear back buffer to fully transparent
         XSetForeground(display, gc, rgba_to_pixel(0, 0, 0, 0));
         XFillRectangle(display, back_buffer, gc, 0, 0, width, height);
     }
@@ -669,4 +641,4 @@ namespace Overlay
     int getWidth() { return width; }
     int getHeight() { return height; }
 
-} // namespace Overlay
+}
