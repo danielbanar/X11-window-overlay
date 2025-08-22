@@ -28,9 +28,9 @@ int main() {
         
         Draw::drawStringPlain(text, padH, padV, 1.0, 1.0, 1.0, ALIGN_LEFT);
         Draw::drawStringBackground(text, width / 2, padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_CENTER);
-        Draw::drawStringOutline(text, width - padH, padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_RIGHT);
+        Draw::drawStringOutline(text, width - padH, padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_RIGHT);
         Draw::drawStringBackground(text, padH, height - padV, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
-        Draw::drawStringOutline(text, width / 2, height - padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 4.0, ALIGN_CENTER);
+        Draw::drawStringOutline(text, width / 2, height - padV, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_CENTER);
         Draw::drawStringPlain(text, width - padH, height - padV, 1.0, 1.0, 1.0, ALIGN_RIGHT);
         Draw::drawStringBackground(text, width / 2, height / 2, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 8, ALIGN_CENTER);
         

@@ -7,13 +7,13 @@ LDFLAGS_COMMON = -lX11 -lXext -lXcomposite -lXfixes
 
 # XFT target
 XFT_TARGET = overlay_xft
-XFT_SRCS = main.cpp $(DRAW_DIR)/x11/draw_x11.cpp
+XFT_SRCS = main.cpp $(DRAW_DIR)/draw_x11.cpp
 XFT_CFLAGS = $(CXXFLAGS_COMMON) -I$(DRAW_DIR) `pkg-config --cflags xft fontconfig`
 XFT_LDFLAGS = `pkg-config --libs xft fontconfig` $(LDFLAGS_COMMON)
 
 # Cairo target
 CAIRO_TARGET = overlay_cairo
-CAIRO_SRCS = main.cpp $(DRAW_DIR)/cairo/draw_cairo.cpp
+CAIRO_SRCS = main.cpp $(DRAW_DIR)/draw_cairo.cpp
 CAIRO_CFLAGS = $(CXXFLAGS_COMMON) -I$(DRAW_DIR) `pkg-config --cflags cairo pangocairo`
 CAIRO_LDFLAGS = `pkg-config --libs cairo pangocairo` $(LDFLAGS_COMMON) -lfontconfig
 

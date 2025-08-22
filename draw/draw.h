@@ -6,12 +6,10 @@
 
 namespace Draw
 {
-
     void setFont(const char *family, int size);
     void drawStringPlain(const std::string &text, int x, int y, double r, double g, double b, int align);
     void drawStringOutline(const std::string &text, int x, int y, double r, double g, double b, double outline_r, double outline_g, double outline_b, double outline_a, double outline_width, int align);
     void drawStringBackground(const std::string &text, int x, int y, double r, double g, double b, double bg_r, double bg_g, double bg_b, double bg_a, int padding, int align);
-
 }
 
 namespace Overlay
@@ -23,5 +21,4 @@ namespace Overlay
     void updateWindowPosition();
     int getWidth();
     int getHeight();
-
 }
