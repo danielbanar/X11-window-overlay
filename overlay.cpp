@@ -12,8 +12,8 @@
 #include <cairo/cairo-xlib.h>
 
 #define ALIGN_CENTER 1
-#define ALIGN_LEFT   2
-#define ALIGN_RIGHT  3
+#define ALIGN_LEFT 2
+#define ALIGN_RIGHT 3
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask | EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask | KeymapStateMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ButtonMotionMask)
 
@@ -56,8 +56,10 @@ bool findWindowByClass(Window root, const std::string &target_class, Window &out
                     if (cls == target_class)
                         match = true;
                 }
-                if (classHint.res_name) XFree(classHint.res_name);
-                if (classHint.res_class) XFree(classHint.res_class);
+                if (classHint.res_name)
+                    XFree(classHint.res_name);
+                if (classHint.res_class)
+                    XFree(classHint.res_class);
 
                 if (match)
                 {
@@ -126,7 +128,7 @@ void createOverlayWindow()
 
 void drawText(const char *text, int x, int y, double r, double g, double b, int align)
 {
-    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_select_font_face(cr, "Emoji", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 24);
 
     cairo_text_extents_t extents;
@@ -177,7 +179,7 @@ int main()
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-        std::string text = std::to_string(elapsed) + " ms";
+        std::string text = std::to_string(elapsed) + " ms 🔋↕️↕↕️🧭🛰️⏱⏱⏱🏠";
 
         drawText(text.c_str(), WIDTH / 2, HEIGHT / 2, 0.0, 1.0, 1.0, ALIGN_CENTER);
 
