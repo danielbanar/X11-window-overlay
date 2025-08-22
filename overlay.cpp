@@ -5,7 +5,6 @@
 #include <vector>
 #include <string>
 #include <locale.h>
-#include <unordered_map>
 
 #include <unistd.h>
 #include <X11/Xos.h>
@@ -55,20 +54,17 @@ int HEIGHT = 480;
 int POSX = 0;
 int POSY = 0;
 
-// Cache structures for performance
+// Precomputed text metrics cache
 struct TextMetrics {
-    int width;
     std::vector<std::pair<XftFont*, std::string>> runs;
-    std::vector<XGlyphInfo> glyph_infos;
+    int width;
 };
-
-static std::unordered_map<std::string, TextMetrics> text_cache;
 
 // ---------- Scoped Timer ----------
 struct ScopeTimer {
     const char* name;
     std::chrono::steady_clock::time_point start;
-    inline static long long threshold_ms = 1; // reduced threshold for better visibility
+    inline static long long threshold_ms = 1; // only print if >1 ms
 
     ScopeTimer(const char* n) : name(n), start(std::chrono::steady_clock::now()) {}
     ~ScopeTimer() {
@@ -93,17 +89,8 @@ static inline bool utf8_next(const char* s, int len, int& i, FcChar32& out)
     return true;
 }
 
-// Pre-allocated color cache to avoid repeated XAllocColor calls
-static std::unordered_map<uint32_t, XColor> color_cache;
-
 XColor createXColorFromRGB(short r, short g, short b)
 {
-    uint32_t key = (r << 16) | (g << 8) | b;
-    auto it = color_cache.find(key);
-    if (it != color_cache.end()) {
-        return it->second;
-    }
-
     XColor color;
     color.red   = (r * 0xFFFF) / 0xFF;
     color.green = (g * 0xFFFF) / 0xFF;
@@ -114,7 +101,6 @@ XColor createXColorFromRGB(short r, short g, short b)
         std::cerr << "Cannot create color" << std::endl;
         exit(1);
     }
-    color_cache[key] = color;
     return color;
 }
 
@@ -125,16 +111,8 @@ XColor createXColorFromRGBA(short r, short g, short b, short a)
     return color;
 }
 
-static std::unordered_map<uint32_t, XftColor> xft_color_cache;
-
 XftColor createXftColor(short r, short g, short b, short a = 255)
 {
-    uint32_t key = (r << 24) | (g << 16) | (b << 8) | a;
-    auto it = xft_color_cache.find(key);
-    if (it != xft_color_cache.end()) {
-        return it->second;
-    }
-
     XftColor color;
     XRenderColor render_color;
     render_color.red   = (r * 0xFFFF) / 0xFF;
@@ -147,7 +125,6 @@ XftColor createXftColor(short r, short g, short b, short a = 255)
         std::cerr << "Cannot create Xft color" << std::endl;
         exit(1);
     }
-    xft_color_cache[key] = color;
     return color;
 }
 
@@ -327,31 +304,16 @@ static bool loadFonts()
     return true;
 }
 
-// Cache for character-to-font mapping
-static std::unordered_map<FcChar32, XftFont*> char_font_cache;
-
 static XftFont* pickFontForChar(FcChar32 ch)
 {
-    auto it = char_font_cache.find(ch);
-    if (it != char_font_cache.end()) {
-        return it->second;
-    }
+    if (g_fonts.primary && XftCharExists(g_display, g_fonts.primary, ch))
+        return g_fonts.primary;
 
-    XftFont* result = nullptr;
-    if (g_fonts.primary && XftCharExists(g_display, g_fonts.primary, ch)) {
-        result = g_fonts.primary;
-    } else {
-        for (auto* f : g_fonts.fallbacks) {
-            if (f && XftCharExists(g_display, f, ch)) {
-                result = f;
-                break;
-            }
-        }
-        if (!result) result = g_fonts.primary;
-    }
-    
-    char_font_cache[ch] = result;
-    return result;
+    for (auto* f : g_fonts.fallbacks)
+        if (f && XftCharExists(g_display, f, ch))
+            return f;
+
+    return g_fonts.primary;
 }
 
 // group UTF-8 into runs
@@ -381,48 +343,59 @@ static void utf8ToFontRuns(const char* text, int len,
     if (!buf.empty() && current) runs.push_back({current, buf});
 }
 
-// --- Optimized text metrics computation with caching ---
-static const TextMetrics& getTextMetrics(const char* text)
+// Precompute text metrics (runs and width)
+static TextMetrics computeTextMetrics(const char* text)
 {
-    std::string text_str(text);
-    auto it = text_cache.find(text_str);
-    if (it != text_cache.end()) {
-        return it->second;
-    }
-
-    TextMetrics metrics;
+    TextMetrics tm;
     int len = (int)strlen(text);
-    utf8ToFontRuns(text, len, metrics.runs);
-
-    metrics.width = 0;
-    metrics.glyph_infos.reserve(metrics.runs.size());
+    utf8ToFontRuns(text, len, tm.runs);
     
-    for (auto& r : metrics.runs) {
+    tm.width = 0;
+    for (auto& r : tm.runs) {
         XGlyphInfo gi;
         XftTextExtentsUtf8(g_display, r.first, (const FcChar8*)r.second.c_str(), (int)r.second.size(), &gi);
-        metrics.glyph_infos.push_back(gi);
-        metrics.width += gi.xOff;
+        tm.width += gi.xOff;
     }
-
-    text_cache[text_str] = metrics;
-    return text_cache[text_str];
+    return tm;
 }
 
-// --- drawing ---
-static int getTextWidthUtf8(const char* text)
+// Fast drawing of precomputed text runs
+static void drawTextRuns(XftDraw* draw, const TextMetrics& tm, int x, int baselineY, const XftColor* col)
 {
-    return getTextMetrics(text).width;
-}
-
-static void drawUtf8String(XftDraw* draw, const char* text, int x, int baselineY, const XftColor* col)
-{
-    const TextMetrics& metrics = getTextMetrics(text);
-    
     int penX = x;
-    for (size_t i = 0; i < metrics.runs.size(); i++) {
-        const auto& r = metrics.runs[i];
-        const auto& gi = metrics.glyph_infos[i];
+    for (auto& r : tm.runs) {
+        XGlyphInfo gi;
+        XftTextExtentsUtf8(g_display, r.first, (const FcChar8*)r.second.c_str(), (int)r.second.size(), &gi);
         XftDrawStringUtf8(draw, col, r.first, penX, baselineY, (const FcChar8*)r.second.c_str(), (int)r.second.size());
+        penX += gi.xOff;
+    }
+}
+
+// Optimized outline drawing using precomputed metrics
+static void drawTextRunsOutline(XftDraw* draw, const TextMetrics& tm, int x, int baselineY, 
+                               const XftColor* fg, const XftColor* outline_color, int outline_thickness = 2)
+{
+    // Draw outline first (only the outer pixels, not the full 3x3 grid)
+    const int offsets[8][2] = {{-1,-1}, {-1,0}, {-1,1}, {0,-1}, {0,1}, {1,-1}, {1,0}, {1,1}};
+    
+    for (int i = 0; i < 8; i++) {
+        int penX = x + offsets[i][0] * outline_thickness;
+        int penY = baselineY + offsets[i][1] * outline_thickness;
+        
+        for (auto& r : tm.runs) {
+            XGlyphInfo gi;
+            XftTextExtentsUtf8(g_display, r.first, (const FcChar8*)r.second.c_str(), (int)r.second.size(), &gi);
+            XftDrawStringUtf8(draw, outline_color, r.first, penX, penY, (const FcChar8*)r.second.c_str(), (int)r.second.size());
+            penX += gi.xOff;
+        }
+    }
+    
+    // Draw main text
+    int penX = x;
+    for (auto& r : tm.runs) {
+        XGlyphInfo gi;
+        XftTextExtentsUtf8(g_display, r.first, (const FcChar8*)r.second.c_str(), (int)r.second.size(), &gi);
+        XftDrawStringUtf8(draw, fg, r.first, penX, baselineY, (const FcChar8*)r.second.c_str(), (int)r.second.size());
         penX += gi.xOff;
     }
 }
@@ -463,27 +436,22 @@ void initOverlay()
 }
 
 // --- drawString wrappers ---
-void drawString(const char *text, int x, int y, XftColor &fg, int align)
+void drawString(const TextMetrics& tm, int x, int y, XftColor &fg, int align)
 {
-    ScopeTimer timer("drawString");
-    int text_width = getTextWidthUtf8(text);
     int text_x = x;
-
     switch(align) {
-        case ALIGN_CENTER: text_x = x - text_width / 2; break;
-        case ALIGN_RIGHT:  text_x = x - text_width;     break;
+        case ALIGN_CENTER: text_x = x - tm.width / 2; break;
+        case ALIGN_RIGHT:  text_x = x - tm.width;     break;
         case ALIGN_LEFT:
         default: break;
     }
     int baseline = y + line_ascent;
-    drawUtf8String(back_draw, text, text_x, baseline, &fg);
+    drawTextRuns(back_draw, tm, text_x, baseline, &fg);
 }
 
-void drawStringBackground(const char *text, int x, int y, XftColor &fg, XColor &bg, int align, int padding = 4)
+void drawStringBackground(const TextMetrics& tm, int x, int y, XftColor &fg, XColor &bg, int align, int padding = 4)
 {
-    ScopeTimer timer("drawStringBackground");
-    int text_width = getTextWidthUtf8(text);
-    int rect_width = text_width + 2 * padding;
+    int rect_width = tm.width + 2 * padding;
     int rect_height = font_height + 2 * padding;
 
     int rect_x = x;
@@ -492,11 +460,11 @@ void drawStringBackground(const char *text, int x, int y, XftColor &fg, XColor &
     switch(align) {
         case ALIGN_CENTER:
             rect_x = x - rect_width / 2;
-            text_x = x - text_width / 2;
+            text_x = x - tm.width / 2;
             break;
         case ALIGN_RIGHT:
             rect_x = x - rect_width;
-            text_x = x - text_width;
+            text_x = x - tm.width;
             break;
         case ALIGN_LEFT:
         default:
@@ -507,59 +475,22 @@ void drawStringBackground(const char *text, int x, int y, XftColor &fg, XColor &
     XFillRectangle(g_display, back_buffer, gc, rect_x, y, rect_width, rect_height);
 
     int baseline = y + padding + line_ascent;
-    drawUtf8String(back_draw, text, text_x, baseline, &fg);
+    drawTextRuns(back_draw, tm, text_x, baseline, &fg);
 }
 
-// --- HIGHLY optimized outline version ---
-void drawStringOutline(const char *text, int x, int y, XftColor &fg, XftColor &outline_color, int align, int outline_thickness = 2)
+// --- optimized outline version ---
+void drawStringOutline(const TextMetrics& tm, int x, int y, XftColor &fg, XftColor &outline_color, int align, int outline_thickness = 2)
 {
-    ScopeTimer timer("drawStringOutline");
-    
-    // Get cached metrics once
-    const TextMetrics& metrics = getTextMetrics(text);
-
     int text_x = x;
     switch(align) {
-        case ALIGN_CENTER: text_x = x - metrics.width / 2; break;
-        case ALIGN_RIGHT:  text_x = x - metrics.width;     break;
+        case ALIGN_CENTER: text_x = x - tm.width / 2; break;
+        case ALIGN_RIGHT:  text_x = x - tm.width;     break;
         case ALIGN_LEFT:
         default: break;
     }
 
     int baseline = y + line_ascent;
-
-    // Pre-calculate outline offsets
-    std::vector<std::pair<int, int>> outline_offsets;
-    for (int ox = -outline_thickness; ox <= outline_thickness; ox++) {
-        for (int oy = -outline_thickness; oy <= outline_thickness; oy++) {
-            if (ox != 0 || oy != 0) {
-                outline_offsets.push_back({ox, oy});
-            }
-        }
-    }
-
-    // Draw all outlines
-    for (const auto& offset : outline_offsets) {
-        int penX = text_x;
-        for (size_t i = 0; i < metrics.runs.size(); i++) {
-            const auto& r = metrics.runs[i];
-            const auto& gi = metrics.glyph_infos[i];
-            XftDrawStringUtf8(back_draw, &outline_color, r.first, 
-                            penX + offset.first, baseline + offset.second, 
-                            (const FcChar8*)r.second.c_str(), (int)r.second.size());
-            penX += gi.xOff;
-        }
-    }
-
-    // Draw main text
-    int penX = text_x;
-    for (size_t i = 0; i < metrics.runs.size(); i++) {
-        const auto& r = metrics.runs[i];
-        const auto& gi = metrics.glyph_infos[i];
-        XftDrawStringUtf8(back_draw, &fg, r.first, penX, baseline, 
-                        (const FcChar8*)r.second.c_str(), (int)r.second.size());
-        penX += gi.xOff;
-    }
+    drawTextRunsOutline(back_draw, tm, text_x, baseline, &fg, &outline_color, outline_thickness);
 }
 
 // --- main loop ---
@@ -617,16 +548,19 @@ int main()
         std::string text = std::to_string(elapsed) + " ms 🔋 ↕️ ↕ 🧭 🛰️ ⏱ 🏠";
         const char* timer_text = text.c_str();
 
+        // Precompute text metrics once per frame
+        TextMetrics tm = computeTextMetrics(timer_text);
+
         int vertical_padding = 20;
         int horizontal_padding = 10;
 
-        drawString(timer_text, horizontal_padding, vertical_padding, xft_white, ALIGN_LEFT);
-        drawStringBackground(timer_text, WIDTH / 2, vertical_padding, xft_white, blacka, ALIGN_CENTER);
-        drawStringOutline(timer_text, WIDTH - horizontal_padding, vertical_padding, xft_ltblue, xft_outline, ALIGN_RIGHT);
-        drawStringBackground(timer_text, horizontal_padding, HEIGHT - vertical_padding - font_height, xft_white, blacka, ALIGN_LEFT);
-        drawStringOutline(timer_text, WIDTH / 2, HEIGHT - vertical_padding - font_height, xft_ltblue, xft_outline, ALIGN_CENTER);
-        drawString(timer_text, WIDTH - horizontal_padding, HEIGHT - vertical_padding - font_height, xft_white, ALIGN_RIGHT);
-        drawStringBackground(timer_text, WIDTH / 2, HEIGHT / 2 - font_height / 2, xft_ltblue, blacka, ALIGN_CENTER);
+        drawString(tm, horizontal_padding, vertical_padding, xft_white, ALIGN_LEFT);
+        drawStringBackground(tm, WIDTH / 2, vertical_padding, xft_white, blacka, ALIGN_CENTER);
+        drawStringOutline(tm, WIDTH - horizontal_padding, vertical_padding, xft_ltblue, xft_outline, ALIGN_RIGHT);
+        drawStringBackground(tm, horizontal_padding, HEIGHT - vertical_padding - font_height, xft_white, blacka, ALIGN_LEFT);
+        drawStringOutline(tm, WIDTH / 2, HEIGHT - vertical_padding - font_height, xft_ltblue, xft_outline, ALIGN_CENTER);
+        drawString(tm, WIDTH - horizontal_padding, HEIGHT - vertical_padding - font_height, xft_white, ALIGN_RIGHT);
+        drawStringBackground(tm, WIDTH / 2, HEIGHT / 2 - font_height / 2, xft_ltblue, blacka, ALIGN_CENTER);
 
         XCopyArea(g_display, back_buffer, g_win, gc, 0, 0, WIDTH, HEIGHT, 0, 0);
         XFlush(g_display);
