@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#define COMPENSATE_SIZE
+
 #ifdef COMPENSATE_SIZE
 const double FONT_SIZE_COMPENSATION = 20.0 / 16.0;
 #else
