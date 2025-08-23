@@ -1,48 +1,48 @@
-#include <pango/pangocairo.h>
+#include "draw.h"
 #include <X11/Xutil.h>
-#include <X11/extensions/shape.h>
 #include <X11/extensions/Xfixes.h>
+#include <X11/extensions/shape.h>
 #include <cairo/cairo-xlib.h>
 #include <iostream>
-#include "draw.h"
+#include <pango/pangocairo.h>
 
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask)
 
 namespace
 {
-    cairo_t *current_cr = nullptr;
+    cairo_t* current_cr = nullptr;
 
-    Display *display = nullptr;
+    Display* display = nullptr;
     Window target_window = 0;
     Window overlay_window = 0;
     Colormap colormap = 0;
 
-    cairo_surface_t *cairo_surface = nullptr;
-    cairo_surface_t *offscreen_surface = nullptr;
-    cairo_t *cr = nullptr;
+    cairo_surface_t* cairo_surface = nullptr;
+    cairo_surface_t* offscreen_surface = nullptr;
+    cairo_t* cr = nullptr;
 
     int width = 0;
     int height = 0;
     int pos_x = 0;
     int pos_y = 0;
 
-    void setLayoutFont(PangoLayout *layout, const char* font_family, int font_size)
+    void setLayoutFont(PangoLayout* layout, const char* font_family, int font_size)
     {
         // Use default values if not specified
         const char* family = font_family ? font_family : "Consolas";
         int size = font_size > 0 ? font_size : 20;
-        
+
         std::string descStr = std::string(family) + " " + std::to_string(size);
-        PangoFontDescription *desc = pango_font_description_from_string(descStr.c_str());
+        PangoFontDescription* desc = pango_font_description_from_string(descStr.c_str());
         pango_layout_set_font_description(layout, desc);
         pango_font_description_free(desc);
     }
 
-    bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
+    bool findWindowByClass(Window root, const std::string& target_class, Window& outWin)
     {
         Window root_return, parent_return;
-        Window *children = nullptr;
+        Window* children = nullptr;
         unsigned int nchildren = 0;
 
         if (XQueryTree(display, root, &root_return, &parent_return, &children, &nchildren))
@@ -119,8 +119,8 @@ namespace
 
         unsigned long mask = CWColormap | CWBorderPixel | CWEventMask | CWDontPropagate | CWOverrideRedirect;
 
-        overlay_window = XCreateWindow(display, DefaultRootWindow(display), pos_x, pos_y, width, height, 0,
-                                       vinfo.depth, InputOutput, vinfo.visual, mask, &attr);
+        overlay_window = XCreateWindow(display, DefaultRootWindow(display), pos_x, pos_y, width, height, 0, vinfo.depth,
+                                       InputOutput, vinfo.visual, mask, &attr);
 
         XShapeCombineMask(display, overlay_window, ShapeInput, 0, 0, None, ShapeSet);
         allowInputPassthrough(overlay_window);
@@ -142,18 +142,17 @@ namespace
         }
     }
 
-}
+} // namespace
 
 namespace Draw
 {
-    void drawStringPlain(const std::string &text, int x, int y,
-                         double r, double g, double b,
-                         const char* font_family, int font_size)
+    void drawStringPlain(const std::string& text, int x, int y, double r, double g, double b, const char* font_family,
+                         int font_size)
     {
         if (!current_cr)
             return;
 
-        PangoLayout *layout = pango_cairo_create_layout(current_cr);
+        PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -164,16 +163,14 @@ namespace Draw
         g_object_unref(layout);
     }
 
-    void drawStringOutline(const std::string &text, int x, int y,
-                           double r, double g, double b,
-                           double outline_r, double outline_g, double outline_b, double outline_a,
-                           double outline_width,
+    void drawStringOutline(const std::string& text, int x, int y, double r, double g, double b, double outline_r,
+                           double outline_g, double outline_b, double outline_a, double outline_width,
                            const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
-        PangoLayout *layout = pango_cairo_create_layout(current_cr);
+        PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -192,16 +189,14 @@ namespace Draw
         g_object_unref(layout);
     }
 
-    void drawStringBackground(const std::string &text, int x, int y,
-                              double r, double g, double b,
-                              double bg_r, double bg_g, double bg_b, double bg_a,
-                              int padding,
-                              const char* font_family, int font_size)
+    void drawStringBackground(const std::string& text, int x, int y, double r, double g, double b, double bg_r,
+                              double bg_g, double bg_b, double bg_a, int padding, const char* font_family,
+                              int font_size)
     {
         if (!current_cr)
             return;
 
-        PangoLayout *layout = pango_cairo_create_layout(current_cr);
+        PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -221,13 +216,12 @@ namespace Draw
         g_object_unref(layout);
     }
 
-    void getTextSize(const std::string &text, int *width, int *height,
-                     const char* font_family, int font_size)
+    void getTextSize(const std::string& text, int* width, int* height, const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
-        PangoLayout *layout = pango_cairo_create_layout(current_cr);
+        PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
@@ -241,11 +235,11 @@ namespace Draw
 
         g_object_unref(layout);
     }
-}
+} // namespace Draw
 
 namespace Overlay
 {
-    bool initialize(const char *window_class)
+    bool initialize(const char* window_class)
     {
         display = XOpenDisplay(0);
         if (!display)
@@ -318,7 +312,7 @@ namespace Overlay
         current_cr = nullptr;
 
         // Blit offscreen buffer to window
-        cairo_t *window_cr = cairo_create(cairo_surface);
+        cairo_t* window_cr = cairo_create(cairo_surface);
         cairo_set_operator(window_cr, CAIRO_OPERATOR_SOURCE);
         cairo_set_source_surface(window_cr, offscreen_surface, 0, 0);
         cairo_paint(window_cr);
@@ -335,13 +329,7 @@ namespace Overlay
         cairo_xlib_surface_set_size(cairo_surface, width, height);
     }
 
-    int getWidth()
-    {
-        return width;
-    }
+    int getWidth() { return width; }
 
-    int getHeight()
-    {
-        return height;
-    }
-}
+    int getHeight() { return height; }
+} // namespace Overlay
