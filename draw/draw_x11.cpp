@@ -353,69 +353,69 @@ namespace
         return tm;
     }
 
-    void drawTextRuns(const TextMetrics& tm, int x, int baselineY, const XftColor* col)
-    {
-        int penX = x;
-        int penY = baselineY;
+void drawTextRuns(const TextMetrics& tm, int x, int baselineY, const XftColor* col, FontSet* font_set)
+{
+    int penX = x;
+    int penY = baselineY;
 
-        for (auto& r : tm.runs)
+    for (auto& r : tm.runs)
+    {
+        if (r.first == nullptr && r.second == "\n")
         {
-            if (r.first == nullptr && r.second == "\n")
-            {
-                penX = x;
-                penY += tm.height; // Use the height from metrics
-                continue;
-            }
+            penX = x;
+            penY += font_set->font_height; // Use font height instead of total block height
+            continue;
+        }
+
+        XGlyphInfo gi;
+        XftTextExtentsUtf8(display, r.first,
+                           (const FcChar8*)r.second.c_str(),
+                           (int)r.second.size(), &gi);
+        XftDrawStringUtf8(back_draw, col, r.first, penX, penY,
+                          (const FcChar8*)r.second.c_str(), (int)r.second.size());
+        penX += gi.xOff;
+    }
+}
+
+void drawTextRunsOutline(const TextMetrics& tm, int x, int baselineY,
+                         const XftColor* fg, const XftColor* outline_color, FontSet* font_set, int outline_thickness = 2)
+{
+    const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
+
+    int penX = x;
+    int penY = baselineY;
+
+    for (auto& r : tm.runs)
+    {
+        if (r.first == nullptr && r.second == "\n")
+        {
+            penX = x;
+            penY += font_set->font_height; // Use font height instead of total block height
+            continue;
+        }
+
+        for (int i = 0; i < 8; ++i)
+        {
+            int outlineX = penX + offsets[i][0] * outline_thickness;
+            int outlineY = penY + offsets[i][1] * outline_thickness;
 
             XGlyphInfo gi;
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8*)r.second.c_str(),
                                (int)r.second.size(), &gi);
-            XftDrawStringUtf8(back_draw, col, r.first, penX, penY,
+            XftDrawStringUtf8(back_draw, outline_color, r.first, outlineX, outlineY,
                               (const FcChar8*)r.second.c_str(), (int)r.second.size());
-            penX += gi.xOff;
         }
+
+        XGlyphInfo gi;
+        XftTextExtentsUtf8(display, r.first,
+                           (const FcChar8*)r.second.c_str(),
+                           (int)r.second.size(), &gi);
+        XftDrawStringUtf8(back_draw, fg, r.first, penX, penY,
+                          (const FcChar8*)r.second.c_str(), (int)r.second.size());
+        penX += gi.xOff;
     }
-
-    void drawTextRunsOutline(const TextMetrics& tm, int x, int baselineY,
-                             const XftColor* fg, const XftColor* outline_color, int outline_thickness = 2)
-    {
-        const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
-
-        int penX = x;
-        int penY = baselineY;
-
-        for (auto& r : tm.runs)
-        {
-            if (r.first == nullptr && r.second == "\n")
-            {
-                penX = x;
-                penY += tm.height; // Use the height from metrics
-                continue;
-            }
-
-            for (int i = 0; i < 8; ++i)
-            {
-                int outlineX = penX + offsets[i][0] * outline_thickness;
-                int outlineY = penY + offsets[i][1] * outline_thickness;
-
-                XGlyphInfo gi;
-                XftTextExtentsUtf8(display, r.first,
-                                   (const FcChar8*)r.second.c_str(),
-                                   (int)r.second.size(), &gi);
-                XftDrawStringUtf8(back_draw, outline_color, r.first, outlineX, outlineY,
-                                  (const FcChar8*)r.second.c_str(), (int)r.second.size());
-            }
-
-            XGlyphInfo gi;
-            XftTextExtentsUtf8(display, r.first,
-                               (const FcChar8*)r.second.c_str(),
-                               (int)r.second.size(), &gi);
-            XftDrawStringUtf8(back_draw, fg, r.first, penX, penY,
-                              (const FcChar8*)r.second.c_str(), (int)r.second.size());
-            penX += gi.xOff;
-        }
-    }
+}
 
     void createOverlayWindow()
     {
@@ -469,7 +469,7 @@ namespace Draw
         XftColor color = createXftColor(r, g, b, 1.0);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRuns(tm, x, baseline, &color);
+        drawTextRuns(tm, x, baseline, &color, font_set);
 
         XftColorFree(display, visual, colormap, &color);
     }
@@ -486,7 +486,7 @@ namespace Draw
         XftColor outline = createXftColor(outline_r, outline_g, outline_b, outline_a);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRunsOutline(tm, x, baseline, &fg, &outline, (int)std::max(1.0, outline_width));
+        drawTextRunsOutline(tm, x, baseline, &fg, &outline, font_set, (int)std::max(1.0, outline_width));
 
         XftColorFree(display, visual, colormap, &fg);
         XftColorFree(display, visual, colormap, &outline);
@@ -515,7 +515,7 @@ namespace Draw
         XFillRectangle(display, back_buffer, gc, x - padding, y - padding, rect_width, rect_height);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRuns(tm, x, baseline, &fg);
+        drawTextRuns(tm, x, baseline, &fg, font_set);
 
         XftColorFree(display, visual, colormap, &fg);
     }

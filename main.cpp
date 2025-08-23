@@ -25,8 +25,8 @@ int main()
 
         // Different texts with different fonts and sizes
         std::string time_text = std::to_string(ms) + " ms";
-        std::string emoji_text = "🔋↕️🧭🛰️⏱🏠";
-        std::string halo_text = "HALO";
+        std::string emoji_text = "🔋↕️🧭\n🛰️⏱🏠";
+        std::string halo_text = "HALO\nJA MILUJEM FICA\nTO TAM ALE MUSITE POVEDAT";
 
         int textWidth, textHeight;
 
