@@ -19,7 +19,6 @@
 
 namespace
 {
-
     Display *display = nullptr;
     int screen = 0;
     Window target_window = 0;
@@ -39,14 +38,18 @@ namespace
     {
         XftFont *primary = nullptr;
         std::vector<XftFont *> fallbacks;
-    } fonts;
+        int line_ascent = 0;
+        int line_descent = 0;
+        int font_height = 0;
+    };
 
-    int line_ascent = 0;
-    int line_descent = 0;
-    int font_height = 0;
-
-    std::string font_family = "Consolas";
-    int font_size = 20;
+    struct FontCacheEntry {
+        std::string family;
+        int size;
+        FontSet font_set;
+    };
+    
+    std::vector<FontCacheEntry> font_cache;
 
     XftColor xft_white, xft_black, xft_ltblue, xft_outline;
 
@@ -187,65 +190,70 @@ namespace
         return XftFontOpenPattern(display, match);
     }
 
-    void computeLineMetrics()
+    FontSet* getFontSet(const char* font_family, int font_size)
     {
-        line_ascent = 0;
-        line_descent = 0;
-        if (fonts.primary)
-        {
-            line_ascent = std::max(line_ascent, fonts.primary->ascent);
-            line_descent = std::max(line_descent, fonts.primary->descent);
+        // Use default values if not specified
+        const char* family = font_family ? font_family : "Consolas";
+        int size = font_size > 0 ? font_size : 20;
+        
+        // Check if we already have this font cached
+        for (auto &entry : font_cache) {
+            if (entry.family == family && entry.size == size) {
+                return &entry.font_set;
+            }
         }
-        for (auto *f : fonts.fallbacks)
-        {
-            if (!f)
-                continue;
-            line_ascent = std::max(line_ascent, f->ascent);
-            line_descent = std::max(line_descent, f->descent);
+        
+        // Create new font set
+        FontCacheEntry new_entry;
+        new_entry.family = family;
+        new_entry.size = size;
+        
+        // Load primary font
+        new_entry.font_set.primary = openFontByFamily(family, size);
+        if (!new_entry.font_set.primary) {
+            std::cerr << "Failed to load primary font: " << family << "\n";
+            // Fallback to default font
+            new_entry.font_set.primary = openFontByFamily("Consolas", 20);
         }
-        font_height = line_ascent + line_descent;
-    }
-
-    bool loadFonts()
-    {
-        if (!FcInit())
-        {
-            std::cerr << "Failed to initialize FontConfig\n";
-            return false;
-        }
-
-        fonts.primary = openFontByFamily(font_family.c_str(), font_size);
-        if (!fonts.primary)
-        {
-            std::cerr << "Failed to load primary font: " << font_family << "\n";
-            return false;
-        }
-
+        
+        // Load fallback fonts
         const char *fallbackFamilies[] = {
             "Noto Color Emoji", "Noto Emoji", "EmojiOne Color", "Twitter Color Emoji",
             "Segoe UI Symbol", "Symbola", "DejaVu Sans", "DejaVu Sans Mono", "Liberation Sans"};
-        for (const char *fam : fallbackFamilies)
-        {
-            if (auto *f = openFontByFamily(fam, font_size))
-            {
-                fonts.fallbacks.push_back(f);
+        for (const char *fam : fallbackFamilies) {
+            if (auto *f = openFontByFamily(fam, size)) {
+                new_entry.font_set.fallbacks.push_back(f);
             }
         }
-
-        computeLineMetrics();
-        return true;
+        
+        // Compute line metrics
+        new_entry.font_set.line_ascent = 0;
+        new_entry.font_set.line_descent = 0;
+        if (new_entry.font_set.primary) {
+            new_entry.font_set.line_ascent = std::max(new_entry.font_set.line_ascent, new_entry.font_set.primary->ascent);
+            new_entry.font_set.line_descent = std::max(new_entry.font_set.line_descent, new_entry.font_set.primary->descent);
+        }
+        for (auto *f : new_entry.font_set.fallbacks) {
+            if (!f) continue;
+            new_entry.font_set.line_ascent = std::max(new_entry.font_set.line_ascent, f->ascent);
+            new_entry.font_set.line_descent = std::max(new_entry.font_set.line_descent, f->descent);
+        }
+        new_entry.font_set.font_height = new_entry.font_set.line_ascent + new_entry.font_set.line_descent;
+        
+        font_cache.push_back(new_entry);
+        return &font_cache.back().font_set;
     }
 
-    XftFont *pickFontForChar(FcChar32 ch)
+    XftFont *pickFontForChar(FontSet* font_set, FcChar32 ch)
     {
-        if (fonts.primary && XftCharExists(display, fonts.primary, ch))
-            return fonts.primary;
+        if (font_set->primary && XftCharExists(display, font_set->primary, ch))
+            return font_set->primary;
 
-        for (auto *f : fonts.fallbacks)
+        for (auto *f : font_set->fallbacks)
             if (f && XftCharExists(display, f, ch))
                 return f;
 
-        return fonts.primary;
+        return font_set->primary;
     }
 
     struct TextMetrics
@@ -257,7 +265,7 @@ namespace
 
     std::map<std::string, TextMetrics> textMetricsCache;
 
-    void utf8ToFontRuns(const char *text, int len, std::vector<std::pair<XftFont *, std::string>> &runs)
+    void utf8ToFontRuns(const char *text, int len, std::vector<std::pair<XftFont *, std::string>> &runs, FontSet* font_set)
     {
         int i = 0;
         XftFont *current = nullptr;
@@ -281,7 +289,7 @@ namespace
                 continue;
             }
 
-            XftFont *f = pickFontForChar(cp);
+            XftFont *f = pickFontForChar(font_set, cp);
 
             if (current == nullptr)
                 current = f;
@@ -298,14 +306,14 @@ namespace
             runs.push_back({current, buf});
     }
 
-    TextMetrics computeTextMetrics(const std::string &text)
+    TextMetrics computeTextMetrics(const std::string &text, FontSet* font_set)
     {
         auto it = textMetricsCache.find(text);
         if (it != textMetricsCache.end())
             return it->second;
 
         TextMetrics tm;
-        utf8ToFontRuns(text.c_str(), static_cast<int>(text.size()), tm.runs);
+        utf8ToFontRuns(text.c_str(), static_cast<int>(text.size()), tm.runs, font_set);
 
         tm.width = 0;
         int max_line_width = 0;
@@ -330,7 +338,7 @@ namespace
 
         max_line_width = std::max(max_line_width, tm.width);
         tm.width = max_line_width;
-        tm.height = line_count * font_height;
+        tm.height = line_count * font_set->font_height;
 
         textMetricsCache.emplace(text, tm);
         return tm;
@@ -346,7 +354,7 @@ namespace
             if (r.first == nullptr && r.second == "\n")
             {
                 penX = x;
-                penY += font_height;
+                penY += tm.height; // Use the height from metrics
                 continue;
             }
 
@@ -373,7 +381,7 @@ namespace
             if (r.first == nullptr && r.second == "\n")
             {
                 penX = x;
-                penY += font_height;
+                penY += tm.height; // Use the height from metrics
                 continue;
             }
 
@@ -443,30 +451,15 @@ namespace
 
 namespace Draw
 {
-
-    void setFont(const char *family, int size)
-    {
-        font_family = family ? family : font_family;
-        font_size = size > 0 ? size : font_size;
-
-        if (fonts.primary)
-            XftFontClose(display, fonts.primary);
-        for (auto *f : fonts.fallbacks)
-            if (f)
-                XftFontClose(display, f);
-        fonts.fallbacks.clear();
-
-        loadFonts();
-        textMetricsCache.clear();
-    }
-
     void drawStringPlain(const std::string &text, int x, int y,
-                         double r, double g, double b)
+                         double r, double g, double b,
+                         const char* font_family, int font_size)
     {
-        TextMetrics tm = computeTextMetrics(text);
+        FontSet* font_set = getFontSet(font_family, font_size);
+        TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor color = createXftColor(r, g, b, 1.0);
 
-        int baseline = y + line_ascent;
+        int baseline = y + font_set->line_ascent;
         drawTextRuns(tm, x, baseline, &color);
 
         XftColorFree(display, visual, colormap, &color);
@@ -475,13 +468,15 @@ namespace Draw
     void drawStringOutline(const std::string &text, int x, int y,
                            double r, double g, double b,
                            double outline_r, double outline_g, double outline_b, double outline_a,
-                           double outline_width)
+                           double outline_width,
+                           const char* font_family, int font_size)
     {
-        TextMetrics tm = computeTextMetrics(text);
+        FontSet* font_set = getFontSet(font_family, font_size);
+        TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor fg = createXftColor(r, g, b, 1.0);
         XftColor outline = createXftColor(outline_r, outline_g, outline_b, outline_a);
 
-        int baseline = y + line_ascent;
+        int baseline = y + font_set->line_ascent;
         drawTextRunsOutline(tm, x, baseline, &fg, &outline, (int)std::max(1.0, outline_width));
 
         XftColorFree(display, visual, colormap, &fg);
@@ -491,9 +486,11 @@ namespace Draw
     void drawStringBackground(const std::string &text, int x, int y,
                               double r, double g, double b,
                               double bg_r, double bg_g, double bg_b, double bg_a,
-                              int padding)
+                              int padding,
+                              const char* font_family, int font_size)
     {
-        TextMetrics tm = computeTextMetrics(text);
+        FontSet* font_set = getFontSet(font_family, font_size);
+        TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor fg = createXftColor(r, g, b, 1.0);
 
         unsigned long bg_pixel = rgba_to_pixel(
@@ -508,14 +505,17 @@ namespace Draw
         XSetForeground(display, gc, bg_pixel);
         XFillRectangle(display, back_buffer, gc, x, y - padding, rect_width, rect_height);
 
-        int baseline = y + line_ascent;
+        int baseline = y + font_set->line_ascent;
         drawTextRuns(tm, x, baseline, &fg);
 
         XftColorFree(display, visual, colormap, &fg);
     }
-    void getTextSize(const std::string &text, int *width, int *height)
+
+    void getTextSize(const std::string &text, int *width, int *height,
+                     const char* font_family, int font_size)
     {
-        TextMetrics tm = computeTextMetrics(text);
+        FontSet* font_set = getFontSet(font_family, font_size);
+        TextMetrics tm = computeTextMetrics(text, font_set);
         if (width)
             *width = tm.width;
         if (height)
@@ -525,7 +525,6 @@ namespace Draw
 
 namespace Overlay
 {
-
     bool initialize(const char *window_class)
     {
         display = XOpenDisplay(0);
@@ -549,12 +548,6 @@ namespace Overlay
 
         getWindowGeometry(target_window);
         createOverlayWindow();
-
-        if (!loadFonts())
-        {
-            std::cerr << "Failed to load fonts\n";
-            return false;
-        }
 
         xft_white = createXftColor(1.0, 1.0, 1.0, 1.0);
         xft_black = createXftColor(0.0, 0.0, 0.0, 1.0);
@@ -582,12 +575,15 @@ namespace Overlay
             gc = nullptr;
         }
 
-        if (fonts.primary)
-            XftFontClose(display, fonts.primary);
-        for (auto *f : fonts.fallbacks)
-            if (f)
-                XftFontClose(display, f);
-        fonts.fallbacks.clear();
+        // Clean up font cache
+        for (auto &entry : font_cache) {
+            if (entry.font_set.primary)
+                XftFontClose(display, entry.font_set.primary);
+            for (auto *f : entry.font_set.fallbacks)
+                if (f)
+                    XftFontClose(display, f);
+        }
+        font_cache.clear();
 
         XftColorFree(display, visual, colormap, &xft_white);
         XftColorFree(display, visual, colormap, &xft_black);
@@ -662,5 +658,4 @@ namespace Overlay
 
     int getWidth() { return width; }
     int getHeight() { return height; }
-
 }

@@ -11,17 +11,7 @@
 
 namespace
 {
-    std::string font_family = "Consolas";
-    int font_size = 20;
     cairo_t *current_cr = nullptr;
-
-    void setLayoutFont(PangoLayout *layout)
-    {
-        std::string descStr = font_family + " " + std::to_string(font_size);
-        PangoFontDescription *desc = pango_font_description_from_string(descStr.c_str());
-        pango_layout_set_font_description(layout, desc);
-        pango_font_description_free(desc);
-    }
 
     Display *display = nullptr;
     Window target_window = 0;
@@ -36,6 +26,18 @@ namespace
     int height = 0;
     int pos_x = 0;
     int pos_y = 0;
+
+    void setLayoutFont(PangoLayout *layout, const char* font_family, int font_size)
+    {
+        // Use default values if not specified
+        const char* family = font_family ? font_family : "Consolas";
+        int size = font_size > 0 ? font_size : 20;
+        
+        std::string descStr = std::string(family) + " " + std::to_string(size);
+        PangoFontDescription *desc = pango_font_description_from_string(descStr.c_str());
+        pango_layout_set_font_description(layout, desc);
+        pango_font_description_free(desc);
+    }
 
     bool findWindowByClass(Window root, const std::string &target_class, Window &outWin)
     {
@@ -144,21 +146,15 @@ namespace
 
 namespace Draw
 {
-
-    void setFont(const char *family, int size)
-    {
-        font_family = family;
-        font_size = size;
-    }
-
     void drawStringPlain(const std::string &text, int x, int y,
-                         double r, double g, double b)
+                         double r, double g, double b,
+                         const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
         PangoLayout *layout = pango_cairo_create_layout(current_cr);
-        setLayoutFont(layout);
+        setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
@@ -171,13 +167,14 @@ namespace Draw
     void drawStringOutline(const std::string &text, int x, int y,
                            double r, double g, double b,
                            double outline_r, double outline_g, double outline_b, double outline_a,
-                           double outline_width)
+                           double outline_width,
+                           const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
         PangoLayout *layout = pango_cairo_create_layout(current_cr);
-        setLayoutFont(layout);
+        setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
         cairo_save(current_cr);
@@ -198,13 +195,14 @@ namespace Draw
     void drawStringBackground(const std::string &text, int x, int y,
                               double r, double g, double b,
                               double bg_r, double bg_g, double bg_b, double bg_a,
-                              int padding)
+                              int padding,
+                              const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
         PangoLayout *layout = pango_cairo_create_layout(current_cr);
-        setLayoutFont(layout);
+        setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
         int pw, ph;
@@ -222,13 +220,15 @@ namespace Draw
 
         g_object_unref(layout);
     }
-    void getTextSize(const std::string &text, int *width, int *height)
+
+    void getTextSize(const std::string &text, int *width, int *height,
+                     const char* font_family, int font_size)
     {
         if (!current_cr)
             return;
 
         PangoLayout *layout = pango_cairo_create_layout(current_cr);
-        setLayoutFont(layout);
+        setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
 
         int w, h;
@@ -245,7 +245,6 @@ namespace Draw
 
 namespace Overlay
 {
-
     bool initialize(const char *window_class)
     {
         display = XOpenDisplay(0);

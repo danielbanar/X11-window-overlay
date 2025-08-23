@@ -10,8 +10,6 @@ int main()
         return 1;
     }
 
-    Draw::setFont("Consolas", 20);
-
     auto start_time = std::chrono::steady_clock::now();
 
     while (true)
@@ -24,22 +22,39 @@ int main()
 
         auto now = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-        std::string text = std::to_string(ms) + " ms 🔋↕️🧭🛰️⏱🏠\nHALO";
+        
+        // Different texts with different fonts and sizes
+        std::string time_text = std::to_string(ms) + " ms";
+        std::string emoji_text = "🔋↕️🧭🛰️⏱🏠";
+        std::string halo_text = "HALO";
 
         int textWidth, textHeight;
-        Draw::getTextSize(text, &textWidth, &textHeight);
+        
+        // Top-left corner with default font
+        Draw::getTextSize(time_text, &textWidth, &textHeight, nullptr, 0);
+        Draw::drawStringBackground(time_text, 10, 10, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, nullptr, 0);
 
-        // Top-left corner
-        Draw::drawStringBackground(text, 0, 0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6);
+        // Top-right corner with different font
+        Draw::getTextSize(emoji_text, &textWidth, &textHeight, "Arial", 24);
+        Draw::drawStringOutline(emoji_text, width - textWidth - 10, 10, 0, 1.0, 1.0, 
+                               0.0, 0.0, 0.0, 1.0, 2.0, "Arial", 24);
 
-        // Top-right corner
-        Draw::drawStringOutline(text, width - textWidth, 0, 0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0);
+        // Middle with another font
+        Draw::getTextSize(halo_text, &textWidth, &textHeight, "Times New Roman", 36);
+        Draw::drawStringPlain(halo_text, (width - textWidth) / 2, (height - textHeight) / 2, 
+                             1.0, 0.5, 0.0, "Times New Roman", 36);
 
-        // Bottom-left corner
-        Draw::drawStringBackground(text, 0, height - textHeight, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6);
+        // Bottom-left corner with another font
+        std::string info_text = "FPS: 60";
+        Draw::getTextSize(info_text, &textWidth, &textHeight, "Courier New", 18);
+        Draw::drawStringBackground(info_text, 10, height - textHeight - 10, 
+                                  0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.6, 6, "Courier New", 18);
 
-        // Bottom-right corner
-        Draw::drawStringPlain(text, width - textWidth, height - textHeight, 1.0, 1.0, 1.0);
+        // Bottom-right corner with default font but different size
+        std::string status_text = "Active";
+        Draw::getTextSize(status_text, &textWidth, &textHeight, nullptr, 30);
+        Draw::drawStringPlain(status_text, width - textWidth - 10, height - textHeight - 10, 
+                             0.8, 0.8, 1.0, nullptr, 30);
 
         Overlay::endFrame();
 
