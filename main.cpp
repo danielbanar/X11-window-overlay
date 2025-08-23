@@ -30,31 +30,31 @@ int main()
 
         int textWidth, textHeight;
 
-        // Top-left corner with default font
+        // Top-left corner with default font (left aligned)
         Draw::getTextSize(time_text, &textWidth, &textHeight, nullptr, 0);
-        Draw::drawStringBackground(time_text, 10, 10, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, nullptr, 0);
+        Draw::drawStringBackground(time_text, 10, 10, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, nullptr, 0, Draw::ALIGN_LEFT);
 
-        // Top-right corner with different font
+        // Top-right corner with different font (right aligned)
         Draw::getTextSize(emoji_text, &textWidth, &textHeight, "Arial", 24);
-        Draw::drawStringOutline(emoji_text, width - textWidth - 10, 10, 0, 1.0, 1.0,
-                                0.0, 0.0, 0.0, 1.0, 2.0, "Arial", 24);
+        Draw::drawStringOutline(emoji_text, width - 10, 10, 0, 1.0, 1.0,
+                                0.0, 0.0, 0.0, 1.0, 2.0, "Arial", 24, Draw::ALIGN_RIGHT);
 
-        // Middle with another font
+        // Middle with another font (centered)
         Draw::getTextSize(halo_text, &textWidth, &textHeight, "Times New Roman", 36);
-        Draw::drawStringPlain(halo_text, (width - textWidth) / 2, (height - textHeight) / 2,
-                              1.0, 0.5, 0.0, "Times New Roman", 36);
+        Draw::drawStringPlain(halo_text,width/2 - 10, (height - textHeight) / 2,
+                              1.0, 0.5, 0.0, "Times New Roman", 36, Draw::ALIGN_RIGHT);
 
-        // Bottom-left corner with another font
+        // Bottom-left corner with another font (left aligned)
         std::string info_text = "FPS: 60";
         Draw::getTextSize(info_text, &textWidth, &textHeight, "Courier New", 18);
         Draw::drawStringBackground(info_text, 10, height - textHeight - 10,
-                                   0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.6, 6, "Courier New", 18);
+                                   0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.6, 6, "Courier New", 18, Draw::ALIGN_LEFT);
 
-        // Bottom-right corner with default font but different size
+        // Bottom-right corner with default font but different size (right aligned)
         std::string status_text = "Active";
         Draw::getTextSize(status_text, &textWidth, &textHeight, nullptr, 30);
-        Draw::drawStringPlain(status_text, width - textWidth - 10, height - textHeight - 10,
-                              0.8, 0.8, 1.0, nullptr, 30);
+        Draw::drawStringPlain(status_text, width - 10, height - textHeight - 10,
+                              0.8, 0.8, 1.0, nullptr, 30, Draw::ALIGN_RIGHT);
 
         Overlay::endFrame();
 

@@ -268,6 +268,7 @@ namespace
     struct TextMetrics
     {
         std::vector<std::pair<XftFont*, std::string>> runs;
+        std::vector<int> line_widths;
         int width = 0;
         int height = 0;
     };
@@ -324,17 +325,17 @@ namespace
         TextMetrics tm;
         utf8ToFontRuns(text.c_str(), static_cast<int>(text.size()), tm.runs, font_set);
 
-        tm.width = 0;
-        int max_line_width = 0;
+        tm.line_widths.clear();
+        int current_line_width = 0;
         int line_count = 1;
 
         for (auto& r : tm.runs)
         {
             if (r.first == nullptr && r.second == "\n")
             {
+                tm.line_widths.push_back(current_line_width);
+                current_line_width = 0;
                 line_count++;
-                max_line_width = std::max(max_line_width, tm.width);
-                tm.width = 0;
                 continue;
             }
 
@@ -342,80 +343,131 @@ namespace
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8*)r.second.c_str(),
                                (int)r.second.size(), &gi);
-            tm.width += gi.xOff;
+            current_line_width += gi.xOff;
         }
 
-        max_line_width = std::max(max_line_width, tm.width);
-        tm.width = max_line_width;
+        // Add the last line
+        tm.line_widths.push_back(current_line_width);
+
+        // Find the maximum line width
+        tm.width = 0;
+        for (int w : tm.line_widths)
+        {
+            if (w > tm.width)
+                tm.width = w;
+        }
+
         tm.height = line_count * font_set->font_height;
 
         textMetricsCache.emplace(text, tm);
         return tm;
     }
 
-void drawTextRuns(const TextMetrics& tm, int x, int baselineY, const XftColor* col, FontSet* font_set)
-{
-    int penX = x;
-    int penY = baselineY;
-
-    for (auto& r : tm.runs)
+    void drawTextRuns(const TextMetrics& tm, int x, int baselineY, const XftColor* col,
+                      FontSet* font_set, Draw::TextAlignment alignment)
     {
-        if (r.first == nullptr && r.second == "\n")
+        int line_index = 0;
+        int penX = x;
+        int penY = baselineY;
+
+        // Adjust initial X position based on alignment for the first line
+        if (alignment != Draw::ALIGN_LEFT && !tm.line_widths.empty())
         {
-            penX = x;
-            penY += font_set->font_height; // Use font height instead of total block height
-            continue;
+            if (alignment == Draw::ALIGN_CENTER)
+                penX = x - tm.line_widths[0] / 2;
+            else if (alignment == Draw::ALIGN_RIGHT)
+                penX = x - tm.line_widths[0];
         }
 
-        XGlyphInfo gi;
-        XftTextExtentsUtf8(display, r.first,
-                           (const FcChar8*)r.second.c_str(),
-                           (int)r.second.size(), &gi);
-        XftDrawStringUtf8(back_draw, col, r.first, penX, penY,
-                          (const FcChar8*)r.second.c_str(), (int)r.second.size());
-        penX += gi.xOff;
-    }
-}
-
-void drawTextRunsOutline(const TextMetrics& tm, int x, int baselineY,
-                         const XftColor* fg, const XftColor* outline_color, FontSet* font_set, int outline_thickness = 2)
-{
-    const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
-
-    int penX = x;
-    int penY = baselineY;
-
-    for (auto& r : tm.runs)
-    {
-        if (r.first == nullptr && r.second == "\n")
+        for (auto& r : tm.runs)
         {
-            penX = x;
-            penY += font_set->font_height; // Use font height instead of total block height
-            continue;
-        }
+            if (r.first == nullptr && r.second == "\n")
+            {
+                line_index++;
+                penY += font_set->font_height;
 
-        for (int i = 0; i < 8; ++i)
-        {
-            int outlineX = penX + offsets[i][0] * outline_thickness;
-            int outlineY = penY + offsets[i][1] * outline_thickness;
+                // Reset X position for the new line based on alignment
+                penX = x;
+                if (alignment != Draw::ALIGN_LEFT && line_index < tm.line_widths.size())
+                {
+                    if (alignment == Draw::ALIGN_CENTER)
+                        penX = x - tm.line_widths[line_index] / 2;
+                    else if (alignment == Draw::ALIGN_RIGHT)
+                        penX = x - tm.line_widths[line_index];
+                }
+                continue;
+            }
 
             XGlyphInfo gi;
             XftTextExtentsUtf8(display, r.first,
                                (const FcChar8*)r.second.c_str(),
                                (int)r.second.size(), &gi);
-            XftDrawStringUtf8(back_draw, outline_color, r.first, outlineX, outlineY,
+            XftDrawStringUtf8(back_draw, col, r.first, penX, penY,
                               (const FcChar8*)r.second.c_str(), (int)r.second.size());
+            penX += gi.xOff;
+        }
+    }
+
+    void drawTextRunsOutline(const TextMetrics& tm, int x, int baselineY,
+                             const XftColor* fg, const XftColor* outline_color,
+                             FontSet* font_set, Draw::TextAlignment alignment, int outline_thickness = 2)
+    {
+        const int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
+
+        int line_index = 0;
+        int penX = x;
+        int penY = baselineY;
+
+        // Adjust initial X position based on alignment for the first line
+        if (alignment != Draw::ALIGN_LEFT && !tm.line_widths.empty())
+        {
+            if (alignment == Draw::ALIGN_CENTER)
+                penX = x - tm.line_widths[0] / 2;
+            else if (alignment == Draw::ALIGN_RIGHT)
+                penX = x - tm.line_widths[0];
         }
 
-        XGlyphInfo gi;
-        XftTextExtentsUtf8(display, r.first,
-                           (const FcChar8*)r.second.c_str(),
-                           (int)r.second.size(), &gi);
-        XftDrawStringUtf8(back_draw, fg, r.first, penX, penY,
-                          (const FcChar8*)r.second.c_str(), (int)r.second.size());
-        penX += gi.xOff;
+        for (auto& r : tm.runs)
+        {
+            if (r.first == nullptr && r.second == "\n")
+            {
+                line_index++;
+                penY += font_set->font_height;
+
+                // Reset X position for the new line based on alignment
+                penX = x;
+                if (alignment != Draw::ALIGN_LEFT && line_index < tm.line_widths.size())
+                {
+                    if (alignment == Draw::ALIGN_CENTER)
+                        penX = x - tm.line_widths[line_index] / 2;
+                    else if (alignment == Draw::ALIGN_RIGHT)
+                        penX = x - tm.line_widths[line_index];
+                }
+                continue;
+            }
+
+            for (int i = 0; i < 8; ++i)
+            {
+                int outlineX = penX + offsets[i][0] * outline_thickness;
+                int outlineY = penY + offsets[i][1] * outline_thickness;
+
+                XGlyphInfo gi;
+                XftTextExtentsUtf8(display, r.first,
+                                   (const FcChar8*)r.second.c_str(),
+                                   (int)r.second.size(), &gi);
+                XftDrawStringUtf8(back_draw, outline_color, r.first, outlineX, outlineY,
+                                  (const FcChar8*)r.second.c_str(), (int)r.second.size());
+            }
+
+            XGlyphInfo gi;
+            XftTextExtentsUtf8(display, r.first,
+                               (const FcChar8*)r.second.c_str(),
+                               (int)r.second.size(), &gi);
+            XftDrawStringUtf8(back_draw, fg, r.first, penX, penY,
+                              (const FcChar8*)r.second.c_str(), (int)r.second.size());
+            penX += gi.xOff;
+        }
     }
-}
 
     void createOverlayWindow()
     {
@@ -462,14 +514,15 @@ namespace Draw
 {
     void drawStringPlain(const std::string& text, int x, int y,
                          double r, double g, double b,
-                         const char* font_family, int font_size)
+                         const char* font_family, int font_size,
+                         TextAlignment alignment)
     {
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor color = createXftColor(r, g, b, 1.0);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRuns(tm, x, baseline, &color, font_set);
+        drawTextRuns(tm, x, baseline, &color, font_set, alignment);
 
         XftColorFree(display, visual, colormap, &color);
     }
@@ -478,7 +531,8 @@ namespace Draw
                            double r, double g, double b,
                            double outline_r, double outline_g, double outline_b, double outline_a,
                            double outline_width,
-                           const char* font_family, int font_size)
+                           const char* font_family, int font_size,
+                           TextAlignment alignment)
     {
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
@@ -486,7 +540,7 @@ namespace Draw
         XftColor outline = createXftColor(outline_r, outline_g, outline_b, outline_a);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRunsOutline(tm, x, baseline, &fg, &outline, font_set, (int)std::max(1.0, outline_width));
+        drawTextRunsOutline(tm, x, baseline, &fg, &outline, font_set, alignment, (int)std::max(1.0, outline_width));
 
         XftColorFree(display, visual, colormap, &fg);
         XftColorFree(display, visual, colormap, &outline);
@@ -496,7 +550,8 @@ namespace Draw
                               double r, double g, double b,
                               double bg_r, double bg_g, double bg_b, double bg_a,
                               int padding,
-                              const char* font_family, int font_size)
+                              const char* font_family, int font_size,
+                              TextAlignment alignment)
     {
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
@@ -511,11 +566,18 @@ namespace Draw
         int rect_width = tm.width + 2 * padding;
         int rect_height = tm.height + 2 * padding;
 
+        // Adjust background position based on alignment
+        int bg_x = x - padding;
+        if (alignment == ALIGN_CENTER)
+            bg_x = x - rect_width / 2;
+        else if (alignment == ALIGN_RIGHT)
+            bg_x = x - rect_width + padding;
+
         XSetForeground(display, gc, bg_pixel);
-        XFillRectangle(display, back_buffer, gc, x - padding, y - padding, rect_width, rect_height);
+        XFillRectangle(display, back_buffer, gc, bg_x, y - padding, rect_width, rect_height);
 
         int baseline = y + font_set->line_ascent;
-        drawTextRuns(tm, x, baseline, &fg, font_set);
+        drawTextRuns(tm, x, baseline, &fg, font_set, alignment);
 
         XftColorFree(display, visual, colormap, &fg);
     }

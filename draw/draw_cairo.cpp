@@ -147,7 +147,7 @@ namespace
 namespace Draw
 {
     void drawStringPlain(const std::string& text, int x, int y, double r, double g, double b, const char* font_family,
-                         int font_size)
+                         int font_size, TextAlignment alignment)
     {
         if (!current_cr)
             return;
@@ -155,9 +155,29 @@ namespace Draw
         PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
+        
+        // Set alignment
+        PangoAlignment pango_align = PANGO_ALIGN_LEFT;
+        if (alignment == ALIGN_CENTER)
+            pango_align = PANGO_ALIGN_CENTER;
+        else if (alignment == ALIGN_RIGHT)
+            pango_align = PANGO_ALIGN_RIGHT;
+        
+        pango_layout_set_alignment(layout, pango_align);
+
+        // Get text extents to adjust position
+        int text_width, text_height;
+        pango_layout_get_pixel_size(layout, &text_width, &text_height);
+        
+        // Adjust x position based on alignment
+        int draw_x = x;
+        if (alignment == ALIGN_CENTER)
+            draw_x = x - text_width / 2;
+        else if (alignment == ALIGN_RIGHT)
+            draw_x = x - text_width;
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, x, y);
+        cairo_move_to(current_cr, draw_x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -165,7 +185,7 @@ namespace Draw
 
     void drawStringOutline(const std::string& text, int x, int y, double r, double g, double b, double outline_r,
                            double outline_g, double outline_b, double outline_a, double outline_width,
-                           const char* font_family, int font_size)
+                           const char* font_family, int font_size, TextAlignment alignment)
     {
         if (!current_cr)
             return;
@@ -173,17 +193,37 @@ namespace Draw
         PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
+        
+        // Set alignment
+        PangoAlignment pango_align = PANGO_ALIGN_LEFT;
+        if (alignment == ALIGN_CENTER)
+            pango_align = PANGO_ALIGN_CENTER;
+        else if (alignment == ALIGN_RIGHT)
+            pango_align = PANGO_ALIGN_RIGHT;
+        
+        pango_layout_set_alignment(layout, pango_align);
+
+        // Get text extents to adjust position
+        int text_width, text_height;
+        pango_layout_get_pixel_size(layout, &text_width, &text_height);
+        
+        // Adjust x position based on alignment
+        int draw_x = x;
+        if (alignment == ALIGN_CENTER)
+            draw_x = x - text_width / 2;
+        else if (alignment == ALIGN_RIGHT)
+            draw_x = x - text_width;
 
         cairo_save(current_cr);
         cairo_set_source_rgba(current_cr, outline_r, outline_g, outline_b, outline_a);
         cairo_set_line_width(current_cr, outline_width * 2);
-        cairo_move_to(current_cr, x, y);
+        cairo_move_to(current_cr, draw_x, y);
         pango_cairo_layout_path(current_cr, layout);
         cairo_stroke(current_cr);
         cairo_restore(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, x, y);
+        cairo_move_to(current_cr, draw_x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -191,7 +231,7 @@ namespace Draw
 
     void drawStringBackground(const std::string& text, int x, int y, double r, double g, double b, double bg_r,
                               double bg_g, double bg_b, double bg_a, int padding, const char* font_family,
-                              int font_size)
+                              int font_size, TextAlignment alignment)
     {
         if (!current_cr)
             return;
@@ -199,18 +239,39 @@ namespace Draw
         PangoLayout* layout = pango_cairo_create_layout(current_cr);
         setLayoutFont(layout, font_family, font_size);
         pango_layout_set_text(layout, text.c_str(), -1);
+        
+        // Set alignment
+        PangoAlignment pango_align = PANGO_ALIGN_LEFT;
+        if (alignment == ALIGN_CENTER)
+            pango_align = PANGO_ALIGN_CENTER;
+        else if (alignment == ALIGN_RIGHT)
+            pango_align = PANGO_ALIGN_RIGHT;
+        
+        pango_layout_set_alignment(layout, pango_align);
 
-        int pw, ph;
-        pango_layout_get_size(layout, &pw, &ph);
-        double w = pw / (double)PANGO_SCALE;
-        double h = ph / (double)PANGO_SCALE;
+        // Get text extents to adjust position
+        int text_width, text_height;
+        pango_layout_get_pixel_size(layout, &text_width, &text_height);
+        
+        // Adjust x position based on alignment
+        int draw_x = x;
+        if (alignment == ALIGN_CENTER)
+            draw_x = x - text_width / 2;
+        else if (alignment == ALIGN_RIGHT)
+            draw_x = x - text_width;
+
+        // Adjust background position based on alignment
+        int bg_x = draw_x - padding;
+        int bg_y = y - padding;
+        int bg_width = text_width + 2 * padding;
+        int bg_height = text_height + 2 * padding;
 
         cairo_set_source_rgba(current_cr, bg_r, bg_g, bg_b, bg_a);
-        cairo_rectangle(current_cr, x - padding, y - padding, w + 2 * padding, h + 2 * padding);
+        cairo_rectangle(current_cr, bg_x, bg_y, bg_width, bg_height);
         cairo_fill(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, x, y);
+        cairo_move_to(current_cr, draw_x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -226,12 +287,12 @@ namespace Draw
         pango_layout_set_text(layout, text.c_str(), -1);
 
         int w, h;
-        pango_layout_get_size(layout, &w, &h);
+        pango_layout_get_pixel_size(layout, &w, &h);
 
         if (width)
-            *width = w / PANGO_SCALE;
+            *width = w;
         if (height)
-            *height = h / PANGO_SCALE;
+            *height = h;
 
         g_object_unref(layout);
     }
