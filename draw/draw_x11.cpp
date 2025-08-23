@@ -461,19 +461,13 @@ namespace Draw
     }
 
     void drawStringPlain(const std::string &text, int x, int y,
-                         double r, double g, double b, int align)
+                         double r, double g, double b)
     {
         TextMetrics tm = computeTextMetrics(text);
         XftColor color = createXftColor(r, g, b, 1.0);
 
-        int text_x = x;
-        if (align == ALIGN_CENTER)
-            text_x = x - tm.width / 2;
-        else if (align == ALIGN_RIGHT)
-            text_x = x - tm.width;
-
         int baseline = y + line_ascent;
-        drawTextRuns(tm, text_x, baseline, &color);
+        drawTextRuns(tm, x, baseline, &color);
 
         XftColorFree(display, visual, colormap, &color);
     }
@@ -481,20 +475,14 @@ namespace Draw
     void drawStringOutline(const std::string &text, int x, int y,
                            double r, double g, double b,
                            double outline_r, double outline_g, double outline_b, double outline_a,
-                           double outline_width, int align)
+                           double outline_width)
     {
         TextMetrics tm = computeTextMetrics(text);
         XftColor fg = createXftColor(r, g, b, 1.0);
         XftColor outline = createXftColor(outline_r, outline_g, outline_b, outline_a);
 
-        int text_x = x;
-        if (align == ALIGN_CENTER)
-            text_x = x - tm.width / 2;
-        else if (align == ALIGN_RIGHT)
-            text_x = x - tm.width;
-
         int baseline = y + line_ascent;
-        drawTextRunsOutline(tm, text_x, baseline, &fg, &outline, (int)std::max(1.0, outline_width));
+        drawTextRunsOutline(tm, x, baseline, &fg, &outline, (int)std::max(1.0, outline_width));
 
         XftColorFree(display, visual, colormap, &fg);
         XftColorFree(display, visual, colormap, &outline);
@@ -503,7 +491,7 @@ namespace Draw
     void drawStringBackground(const std::string &text, int x, int y,
                               double r, double g, double b,
                               double bg_r, double bg_g, double bg_b, double bg_a,
-                              int padding, int align)
+                              int padding)
     {
         TextMetrics tm = computeTextMetrics(text);
         XftColor fg = createXftColor(r, g, b, 1.0);
@@ -517,29 +505,11 @@ namespace Draw
         int rect_width = tm.width + 2 * padding;
         int rect_height = tm.height + 2 * padding;
 
-        int rect_x = x;
-        int text_x = x;
-
-        switch (align)
-        {
-        case ALIGN_CENTER:
-            rect_x = x - rect_width / 2;
-            text_x = x - tm.width / 2;
-            break;
-        case ALIGN_RIGHT:
-            rect_x = x - rect_width;
-            text_x = x - tm.width;
-            break;
-        case ALIGN_LEFT:
-        default:
-            break;
-        }
-
         XSetForeground(display, gc, bg_pixel);
-        XFillRectangle(display, back_buffer, gc, rect_x, y - padding, rect_width, rect_height);
+        XFillRectangle(display, back_buffer, gc, x, y - padding, rect_width, rect_height);
 
         int baseline = y + line_ascent;
-        drawTextRuns(tm, text_x, baseline, &fg);
+        drawTextRuns(tm, x, baseline, &fg);
 
         XftColorFree(display, visual, colormap, &fg);
     }

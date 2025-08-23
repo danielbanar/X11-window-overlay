@@ -26,21 +26,20 @@ int main()
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
         std::string text = std::to_string(ms) + " ms 🔋↕️🧭🛰️⏱🏠\nHALO";
 
-        // Updated main.cpp drawing section
         int textWidth, textHeight;
         Draw::getTextSize(text, &textWidth, &textHeight);
 
         // Top-left corner
-        Draw::drawStringBackground(text, 0, 0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
+        Draw::drawStringBackground(text, 0, 0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6);
 
         // Top-right corner
-        Draw::drawStringOutline(text, width, 0, 0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0, ALIGN_RIGHT);
+        Draw::drawStringOutline(text, width - textWidth, 0, 0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0);
 
-        // Bottom-left corner - adjusted Y position
-        Draw::drawStringBackground(text, 0, height - textHeight, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6, ALIGN_LEFT);
+        // Bottom-left corner
+        Draw::drawStringBackground(text, 0, height - textHeight, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.6, 6);
 
-        // Bottom-right corner - adjusted Y position
-        Draw::drawStringPlain(text, width, height - textHeight, 1.0, 1.0, 1.0, ALIGN_RIGHT);
+        // Bottom-right corner
+        Draw::drawStringPlain(text, width - textWidth, height - textHeight, 1.0, 1.0, 1.0);
 
         Overlay::endFrame();
 

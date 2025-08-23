@@ -152,7 +152,7 @@ namespace Draw
     }
 
     void drawStringPlain(const std::string &text, int x, int y,
-                         double r, double g, double b, int align)
+                         double r, double g, double b)
     {
         if (!current_cr)
             return;
@@ -161,19 +161,8 @@ namespace Draw
         setLayoutFont(layout);
         pango_layout_set_text(layout, text.c_str(), -1);
 
-        int pw, ph;
-        pango_layout_get_size(layout, &pw, &ph);
-        double w = pw / (double)PANGO_SCALE;
-        double h = ph / (double)PANGO_SCALE;
-
-        double tx = x;
-        if (align == ALIGN_CENTER)
-            tx = x - w / 2.0;
-        else if (align == ALIGN_RIGHT)
-            tx = x - w;
-
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y);
+        cairo_move_to(current_cr, x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -182,7 +171,7 @@ namespace Draw
     void drawStringOutline(const std::string &text, int x, int y,
                            double r, double g, double b,
                            double outline_r, double outline_g, double outline_b, double outline_a,
-                           double outline_width, int align)
+                           double outline_width)
     {
         if (!current_cr)
             return;
@@ -191,27 +180,16 @@ namespace Draw
         setLayoutFont(layout);
         pango_layout_set_text(layout, text.c_str(), -1);
 
-        int pw, ph;
-        pango_layout_get_size(layout, &pw, &ph);
-        double w = pw / (double)PANGO_SCALE;
-        double h = ph / (double)PANGO_SCALE;
-
-        double tx = x;
-        if (align == ALIGN_CENTER)
-            tx = x - w / 2.0;
-        else if (align == ALIGN_RIGHT)
-            tx = x - w;
-
         cairo_save(current_cr);
         cairo_set_source_rgba(current_cr, outline_r, outline_g, outline_b, outline_a);
         cairo_set_line_width(current_cr, outline_width * 2);
-        cairo_move_to(current_cr, tx, y);
+        cairo_move_to(current_cr, x, y);
         pango_cairo_layout_path(current_cr, layout);
         cairo_stroke(current_cr);
         cairo_restore(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y);
+        cairo_move_to(current_cr, x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
@@ -220,7 +198,7 @@ namespace Draw
     void drawStringBackground(const std::string &text, int x, int y,
                               double r, double g, double b,
                               double bg_r, double bg_g, double bg_b, double bg_a,
-                              int padding, int align)
+                              int padding)
     {
         if (!current_cr)
             return;
@@ -234,18 +212,12 @@ namespace Draw
         double w = pw / (double)PANGO_SCALE;
         double h = ph / (double)PANGO_SCALE;
 
-        double tx = x;
-        if (align == ALIGN_CENTER)
-            tx = x - w / 2.0;
-        else if (align == ALIGN_RIGHT)
-            tx = x - w;
-
         cairo_set_source_rgba(current_cr, bg_r, bg_g, bg_b, bg_a);
-        cairo_rectangle(current_cr, tx - padding, y - padding, w + 2 * padding, h + 2 * padding);
+        cairo_rectangle(current_cr, x - padding, y - padding, w + 2 * padding, h + 2 * padding);
         cairo_fill(current_cr);
 
         cairo_set_source_rgba(current_cr, r, g, b, 1.0);
-        cairo_move_to(current_cr, tx, y);
+        cairo_move_to(current_cr, x, y);
         pango_cairo_show_layout(current_cr, layout);
 
         g_object_unref(layout);
