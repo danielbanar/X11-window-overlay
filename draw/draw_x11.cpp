@@ -14,6 +14,12 @@
 #include <string>
 #include <vector>
 
+#ifdef COMPENSATE_SIZE
+const double FONT_SIZE_COMPENSATION = 20.0 / 16.0;
+#else
+const double FONT_SIZE_COMPENSATION = 1.0;
+#endif
+
 #define BASIC_EVENT_MASK (StructureNotifyMask | ExposureMask | PropertyChangeMask | EnterWindowMask | LeaveWindowMask | KeyPressMask | KeyReleaseMask | KeymapStateMask)
 #define NOT_PROPAGATE_MASK (KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ButtonMotionMask)
 
@@ -195,7 +201,19 @@ namespace
     {
         // Use default values if not specified
         const char* family = font_family ? font_family : "Consolas";
-        int size = font_size > 0 ? font_size : 20;
+        int size = font_size > 0 ? 
+#ifdef COMPENSATE_SIZE
+    static_cast<int>(font_size * FONT_SIZE_COMPENSATION)
+#else
+    font_size
+#endif
+    : 
+#ifdef COMPENSATE_SIZE
+    25
+#else
+    20
+#endif
+    ;
 
         // Check if we already have this font cached
         for (auto& entry : font_cache)
