@@ -29,6 +29,21 @@ namespace
 
     bool overlay_initialized = false;
     std::string current_window_class;
+    bool x_error_occurred = false;
+
+    // X error handler
+    int xErrorHandler(Display* dpy, XErrorEvent* event)
+    {
+        char error_text[256];
+        XGetErrorText(dpy, event->error_code, error_text, sizeof(error_text));
+        std::cerr << "X Error: " << error_text 
+                  << " (Major: " << (int)event->request_code
+                  << ", Minor: " << (int)event->minor_code
+                  << ", Resource: 0x" << std::hex << event->resourceid << std::dec << ")" << std::endl;
+        
+        x_error_occurred = true;
+        return 0;
+    }
 
     void setLayoutFont(PangoLayout* layout, const char* font_family, int font_size)
     {
@@ -84,30 +99,49 @@ namespace
         return false;
     }
 
-    void getWindowGeometry(Window win)
+    bool getWindowGeometry(Window win)
     {
         if (!display || !win)
-            return;
+            return false;
 
+        // Reset error flag
+        x_error_occurred = false;
+        
         XWindowAttributes attr;
         if (!XGetWindowAttributes(display, win, &attr))
         {
-            std::cerr << "Failed to get window attributes, window may have closed\n";
-            return;
+            if (!x_error_occurred) {
+                std::cerr << "Failed to get window attributes, window may have closed\n";
+            }
+            return false;
+        }
+
+        // Check if an error occurred during XGetWindowAttributes
+        if (x_error_occurred) {
+            return false;
         }
 
         Window child;
         int x, y;
         if (!XTranslateCoordinates(display, win, DefaultRootWindow(display), 0, 0, &x, &y, &child))
         {
-            std::cerr << "Failed to translate window coordinates\n";
-            return;
+            if (!x_error_occurred) {
+                std::cerr << "Failed to translate window coordinates\n";
+            }
+            return false;
+        }
+
+        // Check if an error occurred during XTranslateCoordinates
+        if (x_error_occurred) {
+            return false;
         }
 
         pos_x = x;
         pos_y = y;
         width = attr.width;
         height = attr.height;
+        
+        return true;
     }
 
     void allowInputPassthrough(Window w)
@@ -165,12 +199,22 @@ namespace
         if (!display || !target_window)
             return false;
 
+        // Reset error flag
+        x_error_occurred = false;
+        
         // Check if the target window still exists
         XWindowAttributes attr;
         if (!XGetWindowAttributes(display, target_window, &attr))
         {
+            // If we get here and x_error_occurred is true, it means we got a BadWindow error
             return false;
         }
+        
+        // Check if an X error occurred
+        if (x_error_occurred) {
+            return false;
+        }
+        
         return true;
     }
 
@@ -178,6 +222,9 @@ namespace
     {
         if (!display)
         {
+            // Set up X error handler before opening display
+            XSetErrorHandler(xErrorHandler);
+            
             display = XOpenDisplay(0);
             if (!display)
             {
@@ -194,7 +241,10 @@ namespace
         }
 
         target_window = found_window;
-        getWindowGeometry(target_window);
+        if (!getWindowGeometry(target_window)) {
+            std::cerr << "Failed to get window geometry" << std::endl;
+            return false;
+        }
         createOverlayWindow();
 
         overlay_initialized = true;
@@ -502,7 +552,13 @@ namespace Overlay
             return;
         }
 
-        getWindowGeometry(target_window);
+        // Use the safe version of getWindowGeometry
+        if (!getWindowGeometry(target_window)) {
+            std::cout << "Failed to get window geometry, cleaning up overlay" << std::endl;
+            cleanupOverlayInternal();
+            return;
+        }
+
         XMoveResizeWindow(display, overlay_window, pos_x, pos_y, width, height);
         cairo_xlib_surface_set_size(cairo_surface, width, height);
     }
