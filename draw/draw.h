@@ -24,4 +24,7 @@ namespace Overlay
     void updateWindowPosition();
     int getWidth();
     int getHeight();
+    bool isInitialized();
+    void cleanup();
+    bool tryInitialize(const char* window_class);
 } // namespace Overlay

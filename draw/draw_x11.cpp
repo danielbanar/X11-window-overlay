@@ -42,6 +42,10 @@ namespace
     int pos_x = 0;
     int pos_y = 0;
 
+    bool overlay_initialized = false;
+    std::string current_window_class;
+    bool colors_initialized = false;
+
     struct FontSet
     {
         XftFont* primary = nullptr;
@@ -103,7 +107,12 @@ namespace
         if (!XftColorAllocValue(display, visual, colormap, &rc, &color))
         {
             std::cerr << "Cannot create Xft color\n";
-            std::abort();
+            // Return a default color instead of aborting
+            color.pixel = 0;
+            color.color.red = 0;
+            color.color.green = 0;
+            color.color.blue = 0;
+            color.color.alpha = 65535;
         }
         return color;
     }
@@ -169,12 +178,23 @@ namespace
 
     void getWindowGeometry(Window win)
     {
+        if (!display || !win)
+            return;
+
         XWindowAttributes attr;
-        XGetWindowAttributes(display, win, &attr);
+        if (!XGetWindowAttributes(display, win, &attr))
+        {
+            std::cerr << "Failed to get window attributes, window may have closed\n";
+            return;
+        }
 
         Window child;
         int x, y;
-        XTranslateCoordinates(display, win, DefaultRootWindow(display), 0, 0, &x, &y, &child);
+        if (!XTranslateCoordinates(display, win, DefaultRootWindow(display), 0, 0, &x, &y, &child))
+        {
+            std::cerr << "Failed to translate window coordinates\n";
+            return;
+        }
 
         pos_x = x;
         pos_y = y;
@@ -492,7 +512,11 @@ namespace
     void createOverlayWindow()
     {
         XVisualInfo vinfo;
-        XMatchVisualInfo(display, DefaultScreen(display), 32, TrueColor, &vinfo);
+        if (!XMatchVisualInfo(display, DefaultScreen(display), 32, TrueColor, &vinfo))
+        {
+            std::cerr << "No 32-bit TrueColor visual available\n";
+            return;
+        }
         visual = vinfo.visual;
 
         colormap = XCreateColormap(display, DefaultRootWindow(display), vinfo.visual, AllocNone);
@@ -528,6 +552,117 @@ namespace
         gc = XCreateGC(display, back_buffer, 0, 0);
     }
 
+    bool checkTargetWindowExists()
+    {
+        if (!display || !target_window)
+            return false;
+
+        // Check if the target window still exists
+        XWindowAttributes attr;
+        if (!XGetWindowAttributes(display, target_window, &attr))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    bool initializeOverlayInternal(const char* window_class)
+    {
+        if (!display)
+        {
+            display = XOpenDisplay(0);
+            if (!display)
+            {
+                std::cerr << "Failed to open X display" << std::endl;
+                return false;
+            }
+            screen = DefaultScreen(display);
+        }
+
+        Window found_window = 0;
+        if (!findWindowByClass(DefaultRootWindow(display), 
+                               window_class ? std::string(window_class) : std::string(), 
+                               found_window))
+        {
+            std::cout << "Target window with class '" << (window_class ? window_class : "") 
+                      << "' not found, will retry..." << std::endl;
+            return false;
+        }
+
+        target_window = found_window;
+        getWindowGeometry(target_window);
+        createOverlayWindow();
+
+        // Initialize colors if not already done
+        if (!colors_initialized)
+        {
+            xft_white = createXftColor(1.0, 1.0, 1.0, 1.0);
+            xft_black = createXftColor(0.0, 0.0, 0.0, 1.0);
+            xft_ltblue = createXftColor(0.0, 1.0, 1.0, 1.0);
+            xft_outline = createXftColor(0.0, 0.0, 0.0, 1.0);
+            colors_initialized = true;
+        }
+
+        overlay_initialized = true;
+        std::cout << "Overlay initialized successfully for window class: " << window_class << std::endl;
+        return true;
+    }
+
+    void cleanupOverlayInternal()
+    {
+        if (back_draw)
+        {
+            XftDrawDestroy(back_draw);
+            back_draw = nullptr;
+        }
+        if (back_buffer)
+        {
+            XFreePixmap(display, back_buffer);
+            back_buffer = 0;
+        }
+        if (gc)
+        {
+            XFreeGC(display, gc);
+            gc = nullptr;
+        }
+
+        // Clean up font cache
+        for (auto& entry : font_cache)
+        {
+            if (entry.font_set.primary)
+                XftFontClose(display, entry.font_set.primary);
+            for (auto* f : entry.font_set.fallbacks)
+                if (f)
+                    XftFontClose(display, f);
+        }
+        font_cache.clear();
+
+        if (colors_initialized)
+        {
+            XftColorFree(display, visual, colormap, &xft_white);
+            XftColorFree(display, visual, colormap, &xft_black);
+            XftColorFree(display, visual, colormap, &xft_ltblue);
+            XftColorFree(display, visual, colormap, &xft_outline);
+            colors_initialized = false;
+        }
+
+        if (overlay_window)
+        {
+            XDestroyWindow(display, overlay_window);
+            overlay_window = 0;
+        }
+        if (colormap)
+        {
+            XFreeColormap(display, colormap);
+            colormap = 0;
+        }
+
+        target_window = 0;
+        overlay_initialized = false;
+        
+        std::cout << "Overlay cleaned up" << std::endl;
+    }
+
 } // namespace
 
 namespace Draw
@@ -537,6 +672,9 @@ namespace Draw
                          const char* font_family, int font_size,
                          TextAlignment alignment)
     {
+        if (!overlay_initialized || !back_draw)
+            return;
+
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor color = createXftColor(r, g, b, 1.0);
@@ -554,6 +692,9 @@ namespace Draw
                            const char* font_family, int font_size,
                            TextAlignment alignment)
     {
+        if (!overlay_initialized || !back_draw)
+            return;
+
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor fg = createXftColor(r, g, b, 1.0);
@@ -573,6 +714,9 @@ namespace Draw
                               const char* font_family, int font_size,
                               TextAlignment alignment)
     {
+        if (!overlay_initialized || !back_draw)
+            return;
+
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
         XftColor fg = createXftColor(r, g, b, 1.0);
@@ -605,6 +749,9 @@ namespace Draw
     void getTextSize(const std::string& text, int* width, int* height,
                      const char* font_family, int font_size)
     {
+        if (!overlay_initialized)
+            return;
+
         FontSet* font_set = getFontSet(font_family, font_size);
         TextMetrics tm = computeTextMetrics(text, font_set);
         if (width)
@@ -616,105 +763,94 @@ namespace Draw
 
 namespace Overlay
 {
+    bool isInitialized()
+    {
+        return overlay_initialized;
+    }
+
+    void cleanup()
+    {
+        cleanupOverlayInternal();
+    }
+
+    bool tryInitialize(const char* window_class)
+    {
+        if (overlay_initialized)
+        {
+            // Check if our current target window still exists
+            if (!checkTargetWindowExists())
+            {
+                std::cout << "Target window lost, cleaning up overlay..." << std::endl;
+                cleanupOverlayInternal();
+            }
+            else
+            {
+                return true; // Already initialized and window exists
+            }
+        }
+
+        // Try to initialize with the new window class
+        if (window_class)
+        {
+            current_window_class = window_class;
+        }
+
+        if (!current_window_class.empty())
+        {
+            return initializeOverlayInternal(current_window_class.c_str());
+        }
+
+        return false;
+    }
+
     bool initialize(const char* window_class)
     {
-        display = XOpenDisplay(0);
-        if (!display)
-        {
-            std::cerr << "Failed to open X display\n";
-            return false;
-        }
-
-        screen = DefaultScreen(display);
-
-        if (!findWindowByClass(DefaultRootWindow(display),
-                               window_class ? std::string(window_class) : std::string(),
-                               target_window))
-        {
-            std::cerr << "Could not find window with class '" << (window_class ? window_class : "") << "'\n";
-            XCloseDisplay(display);
-            display = nullptr;
-            return false;
-        }
-
-        getWindowGeometry(target_window);
-        createOverlayWindow();
-
-        xft_white = createXftColor(1.0, 1.0, 1.0, 1.0);
-        xft_black = createXftColor(0.0, 0.0, 0.0, 1.0);
-        xft_ltblue = createXftColor(0.0, 1.0, 1.0, 1.0);
-        xft_outline = createXftColor(0.0, 0.0, 0.0, 1.0);
-
-        return true;
+        current_window_class = window_class ? window_class : "";
+        return tryInitialize(window_class);
     }
 
     void shutdown()
     {
-        if (back_draw)
-        {
-            XftDrawDestroy(back_draw);
-            back_draw = nullptr;
-        }
-        if (back_buffer)
-        {
-            XFreePixmap(display, back_buffer);
-            back_buffer = 0;
-        }
-        if (gc)
-        {
-            XFreeGC(display, gc);
-            gc = nullptr;
-        }
-
-        // Clean up font cache
-        for (auto& entry : font_cache)
-        {
-            if (entry.font_set.primary)
-                XftFontClose(display, entry.font_set.primary);
-            for (auto* f : entry.font_set.fallbacks)
-                if (f)
-                    XftFontClose(display, f);
-        }
-        font_cache.clear();
-
-        XftColorFree(display, visual, colormap, &xft_white);
-        XftColorFree(display, visual, colormap, &xft_black);
-        XftColorFree(display, visual, colormap, &xft_ltblue);
-        XftColorFree(display, visual, colormap, &xft_outline);
-
-        if (overlay_window)
-        {
-            XDestroyWindow(display, overlay_window);
-            overlay_window = 0;
-        }
-        if (colormap)
-        {
-            XFreeColormap(display, colormap);
-            colormap = 0;
-        }
+        cleanupOverlayInternal();
         if (display)
         {
             XCloseDisplay(display);
             display = nullptr;
         }
-
         textMetricsCache.clear();
     }
 
     void beginFrame()
     {
+        if (!overlay_initialized)
+            return;
+
         XSetForeground(display, gc, rgba_to_pixel(0, 0, 0, 0));
         XFillRectangle(display, back_buffer, gc, 0, 0, width, height);
     }
 
     void endFrame()
     {
+        if (!overlay_initialized)
+            return;
+
         XCopyArea(display, back_buffer, overlay_window, gc, 0, 0, width, height, 0, 0);
         XFlush(display);
     }
 
     void updateWindowPosition()
     {
+        if (!overlay_initialized || !target_window)
+            return;
+
+        // Check if target window still exists
+        if (!checkTargetWindowExists())
+        {
+            std::cout << "Target window disappeared during update" << std::endl;
+            cleanupOverlayInternal();
+            return;
+        }
+
         getWindowGeometry(target_window);
         XMoveResizeWindow(display, overlay_window, pos_x, pos_y, width, height);
 
@@ -748,6 +884,17 @@ namespace Overlay
         }
     }
 
-    int getWidth() { return width; }
-    int getHeight() { return height; }
+    int getWidth() 
+    { 
+        if (!overlay_initialized)
+            return 0;
+        return width; 
+    }
+    
+    int getHeight() 
+    { 
+        if (!overlay_initialized)
+            return 0;
+        return height; 
+    }
 } // namespace Overlay

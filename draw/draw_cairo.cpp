@@ -27,6 +27,9 @@ namespace
     int pos_x = 0;
     int pos_y = 0;
 
+    bool overlay_initialized = false;
+    std::string current_window_class;
+
     void setLayoutFont(PangoLayout* layout, const char* font_family, int font_size)
     {
         // Use default values if not specified
@@ -83,12 +86,23 @@ namespace
 
     void getWindowGeometry(Window win)
     {
+        if (!display || !win)
+            return;
+
         XWindowAttributes attr;
-        XGetWindowAttributes(display, win, &attr);
+        if (!XGetWindowAttributes(display, win, &attr))
+        {
+            std::cerr << "Failed to get window attributes, window may have closed\n";
+            return;
+        }
 
         Window child;
         int x, y;
-        XTranslateCoordinates(display, win, DefaultRootWindow(display), 0, 0, &x, &y, &child);
+        if (!XTranslateCoordinates(display, win, DefaultRootWindow(display), 0, 0, &x, &y, &child))
+        {
+            std::cerr << "Failed to translate window coordinates\n";
+            return;
+        }
 
         pos_x = x;
         pos_y = y;
@@ -106,7 +120,11 @@ namespace
     void createOverlayWindow()
     {
         XVisualInfo vinfo;
-        XMatchVisualInfo(display, DefaultScreen(display), 32, TrueColor, &vinfo);
+        if (!XMatchVisualInfo(display, DefaultScreen(display), 32, TrueColor, &vinfo))
+        {
+            std::cerr << "No 32-bit TrueColor visual available\n";
+            return;
+        }
 
         colormap = XCreateColormap(display, DefaultRootWindow(display), vinfo.visual, AllocNone);
         XSetWindowAttributes attr{};
@@ -140,6 +158,85 @@ namespace
             last_width = width;
             last_height = height;
         }
+    }
+
+    bool checkTargetWindowExists()
+    {
+        if (!display || !target_window)
+            return false;
+
+        // Check if the target window still exists
+        XWindowAttributes attr;
+        if (!XGetWindowAttributes(display, target_window, &attr))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    bool initializeOverlayInternal(const char* window_class)
+    {
+        if (!display)
+        {
+            display = XOpenDisplay(0);
+            if (!display)
+            {
+                std::cerr << "Failed to open X display" << std::endl;
+                return false;
+            }
+        }
+
+        Window found_window = 0;
+        if (!findWindowByClass(DefaultRootWindow(display), window_class, found_window))
+        {
+            std::cout << "Target window with class '" << window_class << "' not found, will retry..." << std::endl;
+            return false;
+        }
+
+        target_window = found_window;
+        getWindowGeometry(target_window);
+        createOverlayWindow();
+
+        overlay_initialized = true;
+        std::cout << "Overlay initialized successfully for window class: " << window_class << std::endl;
+        return true;
+    }
+
+    void cleanupOverlayInternal()
+    {
+        if (cr)
+        {
+            cairo_destroy(cr);
+            cr = nullptr;
+        }
+        if (cairo_surface)
+        {
+            cairo_surface_destroy(cairo_surface);
+            cairo_surface = nullptr;
+        }
+        if (offscreen_surface)
+        {
+            cairo_surface_destroy(offscreen_surface);
+            offscreen_surface = nullptr;
+        }
+
+        if (overlay_window)
+        {
+            XDestroyWindow(display, overlay_window);
+            overlay_window = 0;
+        }
+
+        if (colormap)
+        {
+            XFreeColormap(display, colormap);
+            colormap = 0;
+        }
+
+        target_window = 0;
+        overlay_initialized = false;
+        current_cr = nullptr;
+        
+        std::cout << "Overlay cleaned up" << std::endl;
     }
 
 } // namespace
@@ -300,49 +397,55 @@ namespace Draw
 
 namespace Overlay
 {
+    bool isInitialized()
+    {
+        return overlay_initialized;
+    }
+
+    void cleanup()
+    {
+        cleanupOverlayInternal();
+    }
+
+    bool tryInitialize(const char* window_class)
+    {
+        if (overlay_initialized)
+        {
+            // Check if our current target window still exists
+            if (!checkTargetWindowExists())
+            {
+                std::cout << "Target window lost, cleaning up overlay..." << std::endl;
+                cleanupOverlayInternal();
+            }
+            else
+            {
+                return true; // Already initialized and window exists
+            }
+        }
+
+        // Try to initialize with the new window class
+        if (window_class)
+        {
+            current_window_class = window_class;
+        }
+
+        if (!current_window_class.empty())
+        {
+            return initializeOverlayInternal(current_window_class.c_str());
+        }
+
+        return false;
+    }
+
     bool initialize(const char* window_class)
     {
-        display = XOpenDisplay(0);
-        if (!display)
-        {
-            std::cerr << "Failed to open X display" << std::endl;
-            return false;
-        }
-
-        if (!findWindowByClass(DefaultRootWindow(display), window_class, target_window))
-        {
-            std::cerr << "Could not find window with class '" << window_class << "'\n";
-            XCloseDisplay(display);
-            display = nullptr;
-            return false;
-        }
-
-        getWindowGeometry(target_window);
-        createOverlayWindow();
-        return true;
+        current_window_class = window_class ? window_class : "";
+        return tryInitialize(window_class);
     }
 
     void shutdown()
     {
-        if (cr)
-            cairo_destroy(cr);
-        if (cairo_surface)
-            cairo_surface_destroy(cairo_surface);
-        if (offscreen_surface)
-            cairo_surface_destroy(offscreen_surface);
-
-        if (overlay_window)
-        {
-            XDestroyWindow(display, overlay_window);
-            overlay_window = 0;
-        }
-
-        if (colormap)
-        {
-            XFreeColormap(display, colormap);
-            colormap = 0;
-        }
-
+        cleanupOverlayInternal();
         if (display)
         {
             XCloseDisplay(display);
@@ -352,6 +455,9 @@ namespace Overlay
 
     void beginFrame()
     {
+        if (!overlay_initialized)
+            return;
+
         ensureOffscreenBuffer();
         cr = cairo_create(offscreen_surface);
         current_cr = cr;
@@ -365,7 +471,7 @@ namespace Overlay
 
     void endFrame()
     {
-        if (!cr)
+        if (!cr || !overlay_initialized)
             return;
 
         cairo_destroy(cr);
@@ -385,12 +491,33 @@ namespace Overlay
 
     void updateWindowPosition()
     {
+        if (!overlay_initialized || !target_window)
+            return;
+
+        // Check if target window still exists
+        if (!checkTargetWindowExists())
+        {
+            std::cout << "Target window disappeared during update" << std::endl;
+            cleanupOverlayInternal();
+            return;
+        }
+
         getWindowGeometry(target_window);
         XMoveResizeWindow(display, overlay_window, pos_x, pos_y, width, height);
         cairo_xlib_surface_set_size(cairo_surface, width, height);
     }
 
-    int getWidth() { return width; }
+    int getWidth() 
+    { 
+        if (!overlay_initialized)
+            return 0;
+        return width; 
+    }
 
-    int getHeight() { return height; }
+    int getHeight() 
+    { 
+        if (!overlay_initialized)
+            return 0;
+        return height; 
+    }
 } // namespace Overlay
